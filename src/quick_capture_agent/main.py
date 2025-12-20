@@ -264,6 +264,115 @@ def interactive():
     asyncio.run(_interactive())
 
 
+@app.command()
+def capture(
+    content: str = typer.Argument(..., help="Content to capture (text or URL)"),
+    category: Optional[str] = typer.Option(None, "--category", "-c", help="Category"),
+    tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
+    vault: Optional[str] = typer.Option(None, "--vault", help="Obsidian vault path"),
+):
+    """Quick capture content to knowledge base."""
+    from quick_capture_agent.processors.content_processor import ContentProcessor
+    from quick_capture_agent.knowledge_base import ObsidianVault
+
+    async def _capture():
+        processor = ContentProcessor()
+
+        with console.status("[bold cyan]Processing content..."):
+            # Detect if URL
+            if content.startswith("http://") or content.startswith("https://"):
+                result = await processor.process_url(content)
+            else:
+                result = await processor.process_text(content)
+
+        # Override category/tags if provided
+        if category:
+            result["category"] = category
+        if tags:
+            result["tags"] = [t.strip() for t in tags.split(",")]
+
+        # Save to vault
+        vault_path = Path(vault) if vault else Path("./data/knowledge")
+        obsidian = ObsidianVault(vault_path)
+
+        file_path = obsidian.save(result)
+        obsidian.append_to_daily(result)
+
+        console.print(Panel(
+            f"📌 **{result.get('title', 'Untitled')}**\n\n"
+            f"📁 Category: {result.get('category')}\n"
+            f"🏷️ Tags: {', '.join(result.get('tags', []))}\n\n"
+            f"📝 Summary:\n{result.get('summary', 'N/A')[:200]}...\n\n"
+            f"💾 Saved to: {file_path}",
+            title="[green]✅ Captured",
+            border_style="green",
+        ))
+
+    asyncio.run(_capture())
+
+
+@app.command()
+def bot(
+    vault: Optional[str] = typer.Option(None, "--vault", help="Obsidian vault path"),
+):
+    """Start the Telegram bot for content capture."""
+    from quick_capture_agent.interfaces.telegram_bot import TelegramBot
+
+    vault_path = Path(vault) if vault else None
+
+    console.print(Panel(
+        "🤖 Starting Telegram Bot...\n\n"
+        "Make sure TELEGRAM_BOT_TOKEN is set in your environment.\n"
+        "Send /start to the bot to begin.",
+        title="Telegram Bot",
+        border_style="cyan",
+    ))
+
+    try:
+        tg_bot = TelegramBot(knowledge_base_path=vault_path)
+        tg_bot.run()
+    except ValueError as e:
+        console.print(f"[red]Error: {e}")
+        console.print("[yellow]Set TELEGRAM_BOT_TOKEN environment variable")
+
+
+@app.command()
+def init_vault(
+    path: str = typer.Argument("./knowledge", help="Path for the Obsidian vault"),
+):
+    """Initialize a new Obsidian vault for knowledge base."""
+    from quick_capture_agent.knowledge_base import ObsidianVault
+
+    vault_path = Path(path)
+    vault = ObsidianVault(vault_path)
+
+    stats = vault.get_stats()
+
+    console.print(Panel(
+        f"📚 Vault initialized at: {vault_path.absolute()}\n\n"
+        f"📁 Categories created: {len(stats['categories'])}\n"
+        f"📝 Notes: {stats['total_notes']}\n\n"
+        "You can now:\n"
+        "• Open this folder in Obsidian\n"
+        "• Run `qca capture <content>` to add content\n"
+        "• Run `qca bot` to start Telegram capture",
+        title="[green]✅ Vault Ready",
+        border_style="green",
+    ))
+
+
+def run_bot():
+    """Entry point for qca-bot command."""
+    from quick_capture_agent.interfaces.telegram_bot import TelegramBot
+
+    console.print("[cyan]Starting Telegram Bot...")
+    try:
+        tg_bot = TelegramBot()
+        tg_bot.run()
+    except ValueError as e:
+        console.print(f"[red]Error: {e}")
+
+
 def main():
     """Main entry point."""
     app()

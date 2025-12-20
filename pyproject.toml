@@ -23,7 +23,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "claude-agent-sdk>=0.1.0",
     "anthropic>=0.40.0",
     "anyio>=4.0.0",
     "pydantic>=2.0.0",
@@ -33,13 +32,18 @@ dependencies = [
     "rich>=13.0.0",
     "typer>=0.9.0",
     "beautifulsoup4>=4.12.0",
-    "yt-dlp>=2024.0.0",
-    "feedparser>=6.0.0",
     "Pillow>=10.0.0",
-    "openai-whisper>=20231117",
+    "python-telegram-bot>=20.0",
+    "pypdf>=3.0.0",
 ]
 
 [project.optional-dependencies]
+full = [
+    "claude-agent-sdk>=0.1.0",
+    "yt-dlp>=2024.0.0",
+    "feedparser>=6.0.0",
+    "openai-whisper>=20231117",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -51,6 +55,7 @@ dev = [
 
 [project.scripts]
 qca = "quick_capture_agent.main:app"
+qca-bot = "quick_capture_agent.main:run_bot"
 
 [tool.setuptools.packages.find]
 where = ["src"]
