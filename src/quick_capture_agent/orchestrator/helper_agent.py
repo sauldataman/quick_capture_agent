@@ -111,7 +111,7 @@ When receiving a request:
 5. **Synthesize**: Combine results into a coherent response
 
 ## Task Routing Guidelines
-- Research questions, fact-finding, comparisons → **research** agent
+- Research questions, fact-finding, web searches, comparisons → **web-research-specialist** agent
 - Collecting articles, images, podcasts, storing to knowledge base → **content_collector** agent
 - Multi-step tasks requiring multiple capabilities → coordinate multiple agents
 - Simple questions you can answer directly → respond directly
@@ -180,6 +180,7 @@ When coordinating agents, structure your response as:
         research_keywords = [
             "research", "investigate", "find out", "what is", "how does",
             "compare", "analyze", "explain", "why", "learn about",
+            "search", "look up", "find information",
         ]
         if any(kw in task_lower for kw in research_keywords):
             return TaskType.RESEARCH
@@ -217,11 +218,11 @@ When coordinating agents, structure your response as:
 
     async def _handle_research(self, task: str, context: Optional[dict]) -> AgentResult:
         """Handle research tasks."""
-        agent = self.registry.get("research")
+        agent = self.registry.get("web-research-specialist")
         if not agent:
             return AgentResult(
                 success=False,
-                error="Research agent not available",
+                error="Web research specialist agent not available",
             )
 
         result = await agent.run(task, context)
@@ -230,13 +231,13 @@ When coordinating agents, structure your response as:
             success=result.success,
             data={
                 "task_type": "research",
-                "agent_used": "research",
+                "agent_used": "web-research-specialist",
                 "result": result.data,
             },
             error=result.error,
             metadata={
                 "orchestrator": self.name,
-                "sub_agent": "research",
+                "sub_agent": "web-research-specialist",
             },
         )
 
@@ -271,7 +272,7 @@ When coordinating agents, structure your response as:
         """Handle multi-step tasks requiring coordination."""
         # For now, use research agent to break down and handle
         # In a full implementation, this would parse the task and coordinate multiple agents
-        research_agent = self.registry.get("research")
+        research_agent = self.registry.get("web-research-specialist")
         if research_agent:
             result = await research_agent.run(
                 f"Break down and execute this multi-step task: {task}",

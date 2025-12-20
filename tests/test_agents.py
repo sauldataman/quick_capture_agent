@@ -30,25 +30,26 @@ class TestAgentResult:
 
 
 class TestResearchAgent:
-    """Tests for ResearchAgent."""
+    """Tests for ResearchAgent (Web Research Specialist)."""
 
     def test_initialization(self):
         agent = ResearchAgent()
-        assert agent.name == "research"
+        assert agent.name == "web-research-specialist"
         assert agent.status == AgentStatus.IDLE
-        assert "WebSearch" in agent.config.tools
+        assert "mcp__mcp-server-firecrawl__firecrawl_search" in agent.config.tools
 
     def test_default_config(self):
         agent = ResearchAgent()
         config = agent._default_config()
-        assert config.name == "research"
+        assert config.name == "web-research-specialist"
         assert config.model == "claude-sonnet-4-5-20241022"
+        assert len(config.tools) == 3  # firecrawl_scrape, firecrawl_map, firecrawl_search
 
     def test_system_prompt(self):
         agent = ResearchAgent()
         prompt = agent.get_system_prompt()
-        assert "research" in prompt.lower()
-        assert "methodology" in prompt.lower()
+        assert "web researcher" in prompt.lower()
+        assert "firecrawl" in prompt.lower()
 
     @pytest.mark.asyncio
     async def test_mock_execute(self):
@@ -99,7 +100,7 @@ class TestHelperAgent:
     def test_initialization(self):
         agent = HelperAgent()
         assert agent.name == "helper"
-        assert "research" in agent.registry.list_agents()
+        assert "web-research-specialist" in agent.registry.list_agents()
         assert "content_collector" in agent.registry.list_agents()
 
     def test_agent_registration(self):
