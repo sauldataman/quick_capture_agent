@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  quick-capture-bot:
+    build: .
+    container_name: quick-capture-agent
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS:-}
+      - KNOWLEDGE_BASE_PATH=/app/data/knowledge
+    volumes:
+      # Persist knowledge base
+      - ./data/knowledge:/app/data/knowledge
+      # Custom prompts (optional)
+      - ./config/prompts.yaml:/app/config/prompts.yaml:ro
+    # Uncomment for webhook mode
+    # ports:
+    #   - "8443:8443"
+
+# Optional: Use with external volume for persistence
+# volumes:
+#   knowledge_data:

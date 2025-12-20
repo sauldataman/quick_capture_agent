@@ -1,0 +1,10 @@
+# Railway deployment configuration
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "python -m quick_capture_agent.interfaces.webhook_server"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

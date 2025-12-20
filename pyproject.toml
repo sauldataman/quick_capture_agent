@@ -35,6 +35,7 @@ dependencies = [
     "Pillow>=10.0.0",
     "python-telegram-bot>=20.0",
     "pypdf>=3.0.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +57,7 @@ dev = [
 [project.scripts]
 qca = "quick_capture_agent.main:app"
 qca-bot = "quick_capture_agent.main:run_bot"
+qca-webhook = "quick_capture_agent.interfaces.webhook_server:run_webhook_server"
 
 [tool.setuptools.packages.find]
 where = ["src"]

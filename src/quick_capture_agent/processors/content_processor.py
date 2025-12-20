@@ -51,12 +51,71 @@ class ContentProcessor:
     Processes various content types and extracts structured information.
 
     Uses Claude for intelligent content analysis, classification, and summarization.
+    Supports custom prompts per category via PromptManager.
     """
 
-    def __init__(self):
+    def __init__(self, use_ai: bool = True):
         self.url_pattern = re.compile(
             r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
         )
+        self.use_ai = use_ai
+        self._prompt_manager = None
+
+    @property
+    def prompt_manager(self):
+        """Lazy load prompt manager."""
+        if self._prompt_manager is None:
+            from quick_capture_agent.processors.prompt_manager import get_prompt_manager
+            self._prompt_manager = get_prompt_manager()
+        return self._prompt_manager
+
+    async def process_with_ai(self, content: str, category: Optional[str] = None) -> dict:
+        """
+        Process content using AI with category-specific prompts.
+
+        Args:
+            content: The content to process
+            category: Optional category (auto-detected if not provided)
+
+        Returns:
+            AI-processed result dict
+        """
+        if not self.use_ai:
+            return {}
+
+        # Detect or use provided category
+        if category:
+            detected_category = category
+        else:
+            detected_category = self.prompt_manager.detect_category(content)
+
+        system_prompt = self.prompt_manager.get_system_prompt(detected_category)
+        user_prompt = self.prompt_manager.format_user_prompt(detected_category, content)
+
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic()
+            response = client.messages.create(
+                model="claude-sonnet-4-5-20241022",
+                max_tokens=2000,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+
+            # Parse AI response
+            ai_result = response.content[0].text
+            return {
+                "ai_analysis": ai_result,
+                "detected_category": detected_category,
+                "prompt_used": detected_category,
+            }
+
+        except Exception as e:
+            return {
+                "ai_error": str(e),
+                "detected_category": detected_category,
+            }
 
     def _generate_id(self, content: str) -> str:
         """Generate unique ID for content."""
