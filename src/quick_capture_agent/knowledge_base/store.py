@@ -1,0 +1,329 @@
+"""
+Knowledge Base storage system for persisting collected content and knowledge.
+"""
+
+import json
+import hashlib
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Iterator
+from dataclasses import dataclass, field, asdict
+from enum import Enum
+import shutil
+
+
+class ContentCategory(str, Enum):
+    """Categories for organizing knowledge."""
+
+    RESEARCH = "research"
+    ARTICLES = "articles"
+    IMAGES = "images"
+    PODCASTS = "podcasts"
+    VIDEOS = "videos"
+    DOCUMENTS = "documents"
+    NOTES = "notes"
+    BOOKMARKS = "bookmarks"
+    REFERENCES = "references"
+    UNCATEGORIZED = "uncategorized"
+
+
+@dataclass
+class KnowledgeItem:
+    """A single item in the knowledge base."""
+
+    id: str
+    title: str
+    content: str
+    source: str
+    category: ContentCategory
+    tags: list[str] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        data = asdict(self)
+        data["category"] = self.category.value
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "KnowledgeItem":
+        """Create from dictionary."""
+        if "category" in data:
+            data["category"] = ContentCategory(data["category"])
+        return cls(**data)
+
+    def matches_query(self, query: str) -> bool:
+        """Check if this item matches a search query."""
+        query_lower = query.lower()
+        return (
+            query_lower in self.title.lower()
+            or query_lower in self.content.lower()
+            or any(query_lower in tag.lower() for tag in self.tags)
+        )
+
+
+class KnowledgeBase:
+    """
+    Persistent knowledge base for storing and retrieving collected content.
+
+    Features:
+    - Category-based organization
+    - Tag-based search
+    - Full-text search
+    - JSON file storage
+    - Automatic indexing
+    """
+
+    def __init__(self, base_path: Optional[Path] = None):
+        self.base_path = base_path or Path("./data/knowledge")
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        self.index_path = self.base_path / "_index.json"
+        self._index: dict = {}
+        self._load_index()
+
+    def _load_index(self) -> None:
+        """Load the index from disk."""
+        if self.index_path.exists():
+            with open(self.index_path, "r", encoding="utf-8") as f:
+                self._index = json.load(f)
+        else:
+            self._index = {
+                "items": {},
+                "tags": {},
+                "categories": {},
+                "created_at": datetime.now().isoformat(),
+            }
+            self._save_index()
+
+    def _save_index(self) -> None:
+        """Save the index to disk."""
+        self._index["updated_at"] = datetime.now().isoformat()
+        with open(self.index_path, "w", encoding="utf-8") as f:
+            json.dump(self._index, f, indent=2, ensure_ascii=False)
+
+    def _generate_id(self, content: str) -> str:
+        """Generate a unique ID for content."""
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+        return f"{timestamp}-{content_hash}"
+
+    def _get_item_path(self, item_id: str, category: ContentCategory) -> Path:
+        """Get the file path for an item."""
+        category_dir = self.base_path / category.value
+        category_dir.mkdir(parents=True, exist_ok=True)
+        return category_dir / f"{item_id}.json"
+
+    def add(
+        self,
+        title: str,
+        content: str,
+        source: str = "",
+        category: ContentCategory = ContentCategory.UNCATEGORIZED,
+        tags: list[str] = None,
+        metadata: dict = None,
+    ) -> KnowledgeItem:
+        """
+        Add a new item to the knowledge base.
+
+        Args:
+            title: Title of the item
+            content: Main content
+            source: Source URL or path
+            category: Category for organization
+            tags: List of tags
+            metadata: Additional metadata
+
+        Returns:
+            The created KnowledgeItem
+        """
+        item_id = self._generate_id(content)
+        item = KnowledgeItem(
+            id=item_id,
+            title=title,
+            content=content,
+            source=source,
+            category=category,
+            tags=tags or [],
+            metadata=metadata or {},
+        )
+
+        # Save item
+        item_path = self._get_item_path(item_id, category)
+        with open(item_path, "w", encoding="utf-8") as f:
+            json.dump(item.to_dict(), f, indent=2, ensure_ascii=False)
+
+        # Update index
+        self._index["items"][item_id] = {
+            "title": title,
+            "category": category.value,
+            "tags": tags or [],
+            "path": str(item_path.relative_to(self.base_path)),
+            "created_at": item.created_at,
+        }
+
+        # Update tag index
+        for tag in tags or []:
+            if tag not in self._index["tags"]:
+                self._index["tags"][tag] = []
+            self._index["tags"][tag].append(item_id)
+
+        # Update category index
+        if category.value not in self._index["categories"]:
+            self._index["categories"][category.value] = []
+        self._index["categories"][category.value].append(item_id)
+
+        self._save_index()
+        return item
+
+    def get(self, item_id: str) -> Optional[KnowledgeItem]:
+        """Get an item by ID."""
+        if item_id not in self._index["items"]:
+            return None
+
+        item_info = self._index["items"][item_id]
+        item_path = self.base_path / item_info["path"]
+
+        if not item_path.exists():
+            return None
+
+        with open(item_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return KnowledgeItem.from_dict(data)
+
+    def update(self, item_id: str, **updates) -> Optional[KnowledgeItem]:
+        """Update an existing item."""
+        item = self.get(item_id)
+        if not item:
+            return None
+
+        # Apply updates
+        for key, value in updates.items():
+            if hasattr(item, key):
+                setattr(item, key, value)
+        item.updated_at = datetime.now().isoformat()
+
+        # Save updated item
+        item_path = self._get_item_path(item_id, item.category)
+        with open(item_path, "w", encoding="utf-8") as f:
+            json.dump(item.to_dict(), f, indent=2, ensure_ascii=False)
+
+        # Update index
+        self._index["items"][item_id]["title"] = item.title
+        self._index["items"][item_id]["tags"] = item.tags
+        self._save_index()
+
+        return item
+
+    def delete(self, item_id: str) -> bool:
+        """Delete an item from the knowledge base."""
+        if item_id not in self._index["items"]:
+            return False
+
+        item_info = self._index["items"][item_id]
+        item_path = self.base_path / item_info["path"]
+
+        # Delete file
+        if item_path.exists():
+            item_path.unlink()
+
+        # Remove from indexes
+        del self._index["items"][item_id]
+
+        # Remove from tag index
+        for tag, ids in self._index["tags"].items():
+            if item_id in ids:
+                ids.remove(item_id)
+
+        # Remove from category index
+        category = item_info["category"]
+        if category in self._index["categories"]:
+            if item_id in self._index["categories"][category]:
+                self._index["categories"][category].remove(item_id)
+
+        self._save_index()
+        return True
+
+    def search(
+        self,
+        query: str = "",
+        category: Optional[ContentCategory] = None,
+        tags: list[str] = None,
+        limit: int = 50,
+    ) -> list[KnowledgeItem]:
+        """
+        Search the knowledge base.
+
+        Args:
+            query: Text to search for
+            category: Filter by category
+            tags: Filter by tags (items must have all specified tags)
+            limit: Maximum number of results
+
+        Returns:
+            List of matching KnowledgeItems
+        """
+        results = []
+
+        # Filter by category first if specified
+        if category:
+            item_ids = self._index["categories"].get(category.value, [])
+        else:
+            item_ids = list(self._index["items"].keys())
+
+        # Filter by tags
+        if tags:
+            for tag in tags:
+                tag_ids = set(self._index["tags"].get(tag, []))
+                item_ids = [id for id in item_ids if id in tag_ids]
+
+        # Search through filtered items
+        for item_id in item_ids[:limit * 2]:  # Get more to account for query filtering
+            item = self.get(item_id)
+            if item:
+                if not query or item.matches_query(query):
+                    results.append(item)
+                    if len(results) >= limit:
+                        break
+
+        return results
+
+    def list_by_category(self, category: ContentCategory) -> list[KnowledgeItem]:
+        """List all items in a category."""
+        return self.search(category=category)
+
+    def list_by_tag(self, tag: str) -> list[KnowledgeItem]:
+        """List all items with a specific tag."""
+        return self.search(tags=[tag])
+
+    def get_all_tags(self) -> list[str]:
+        """Get all tags in the knowledge base."""
+        return list(self._index["tags"].keys())
+
+    def get_all_categories(self) -> list[str]:
+        """Get all categories that have items."""
+        return [cat for cat, ids in self._index["categories"].items() if ids]
+
+    def get_stats(self) -> dict:
+        """Get statistics about the knowledge base."""
+        return {
+            "total_items": len(self._index["items"]),
+            "categories": {
+                cat: len(ids) for cat, ids in self._index["categories"].items() if ids
+            },
+            "total_tags": len(self._index["tags"]),
+            "created_at": self._index.get("created_at"),
+            "updated_at": self._index.get("updated_at"),
+        }
+
+    def export(self, output_path: Path) -> None:
+        """Export the entire knowledge base to a directory."""
+        shutil.copytree(self.base_path, output_path, dirs_exist_ok=True)
+
+    def iter_all(self) -> Iterator[KnowledgeItem]:
+        """Iterate through all items in the knowledge base."""
+        for item_id in self._index["items"]:
+            item = self.get(item_id)
+            if item:
+                yield item
