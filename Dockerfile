@@ -28,5 +28,5 @@ ENV KNOWLEDGE_BASE_PATH="/app/data/knowledge"
 # Expose port for webhook mode (optional)
 EXPOSE 8443
 
-# Default command: run Telegram bot
-CMD ["python", "-m", "quick_capture_agent.main", "bot", "--vault", "/app/data/knowledge"]
+# Default command: run Telegram bot in webhook mode (for Railway/cloud deployment)
+CMD ["python", "-m", "quick_capture_agent.interfaces.webhook_server"]

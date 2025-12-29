@@ -145,6 +145,17 @@ class WebhookServer:
 def run_webhook_server():
     """Entry point for webhook server."""
     import argparse
+    import sys
+
+    # Check for required environment variables early
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        print("ERROR: TELEGRAM_BOT_TOKEN environment variable is required")
+        print("Please set it in Railway dashboard: Settings -> Variables")
+        print("")
+        print("Waiting for configuration... (server will start when env vars are set)")
+        # Exit gracefully instead of crashing - Railway will restart
+        sys.exit(1)
 
     parser = argparse.ArgumentParser(description="Run Telegram bot in webhook mode")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", 8443)))
@@ -157,11 +168,13 @@ def run_webhook_server():
     vault_path = Path(args.vault) if args.vault else None
 
     server = WebhookServer(
+        bot_token=bot_token,
         webhook_url=args.webhook_url,
         knowledge_base_path=vault_path,
     )
     server.run(host=args.host, port=args.port)
 
 
+# Only run when executed directly, not when imported
 if __name__ == "__main__":
     run_webhook_server()
