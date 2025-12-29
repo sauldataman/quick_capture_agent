@@ -24,6 +24,7 @@ from telegram.ext import (
 from quick_capture_agent.processors.content_processor import ContentProcessor
 from quick_capture_agent.processors.markdown_generator import MarkdownGenerator
 from quick_capture_agent.knowledge_base import KnowledgeBase, ContentCategory
+from quick_capture_agent.knowledge_base.git_sync import get_git_sync
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,16 @@ class TelegramBot:
         if users_str:
             return [int(u.strip()) for u in users_str.split(",") if u.strip()]
         return []  # Empty means allow all
+
+    async def _sync_to_git(self, title: str = "New capture") -> None:
+        """Sync changes to Git repository if configured."""
+        git_sync = get_git_sync(self.knowledge_base.base_path)
+        if git_sync:
+            try:
+                await git_sync.sync_changes(f"Add: {title}")
+                logger.info(f"Synced to git: {title}")
+            except Exception as e:
+                logger.error(f"Git sync failed: {e}")
 
     def _is_authorized(self, user_id: int) -> bool:
         """Check if user is authorized."""
@@ -160,6 +171,9 @@ class TelegramBot:
                 }
             )
 
+            # Sync to git if configured
+            await self._sync_to_git(result.get('title', 'New note'))
+
             # Send confirmation
             response = f"""✅ **已保存到知识库**
 
@@ -212,6 +226,9 @@ class TelegramBot:
                     "telegram_message_id": message.message_id,
                 }
             )
+
+            # Sync to git if configured
+            await self._sync_to_git(result.get('title', 'New article'))
 
             response = f"""✅ **文章已保存**
 
@@ -273,6 +290,9 @@ class TelegramBot:
                 }
             )
 
+            # Sync to git if configured
+            await self._sync_to_git(result.get('title', 'New image'))
+
             response = f"""✅ **图片已分析并保存**
 
 📌 **{result.get('title', 'Image')}**
@@ -316,6 +336,9 @@ class TelegramBot:
                 category=ContentCategory(result.get("category", "documents")),
                 tags=result.get("tags", []),
             )
+
+            # Sync to git if configured
+            await self._sync_to_git(result.get('title', doc.file_name))
 
             response = f"""✅ **文档已处理**
 
