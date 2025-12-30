@@ -25,6 +25,7 @@ from quick_capture_agent.processors.content_processor import ContentProcessor
 from quick_capture_agent.processors.markdown_generator import MarkdownGenerator
 from quick_capture_agent.knowledge_base import KnowledgeBase, ContentCategory
 from quick_capture_agent.knowledge_base.git_sync import get_git_sync
+from quick_capture_agent.knowledge_base.gdrive_sync import get_gdrive_sync
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,39 @@ class TelegramBot:
                 logger.info(f"Synced to git: {title}")
             except Exception as e:
                 logger.error(f"Git sync failed: {e}")
+
+    async def _sync_to_gdrive(
+        self,
+        content: str,
+        category: str,
+        filename: str,
+        image_path: Optional[Path] = None
+    ) -> Optional[str]:
+        """
+        Sync content to Google Drive if configured.
+
+        Returns the Google Drive link if successful.
+        """
+        gdrive = get_gdrive_sync()
+        if not gdrive:
+            return None
+
+        try:
+            # Upload markdown content
+            remote_path = f"{category}/{filename}"
+            result = await gdrive.upload_content(content, remote_path)
+            logger.info(f"Synced to Google Drive: {remote_path}")
+
+            # Upload image if present
+            if image_path and image_path.exists():
+                img_remote = f"_attachments/{image_path.name}"
+                await gdrive.upload_file(image_path, img_remote)
+
+            return result.get('webViewLink')
+
+        except Exception as e:
+            logger.error(f"Google Drive sync failed: {e}")
+            return None
 
     def _is_authorized(self, user_id: int) -> bool:
         """Check if user is authorized."""
@@ -174,12 +208,20 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New note'))
 
+            # Sync to Google Drive if configured
+            gdrive_link = await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'notes'),
+                filename=f"{item.id}.md"
+            )
+
             # Send confirmation
+            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
             response = f"""✅ **已保存到知识库**
 
 📌 **标题**: {result.get('title', 'Untitled')}
 📁 **分类**: {result.get('category', 'uncategorized')}
-🏷️ **标签**: {', '.join(result.get('tags', [])) or '无'}
+🏷️ **标签**: {', '.join(result.get('tags', [])) or '无'}{gdrive_info}
 
 📝 **摘要**:
 {result.get('summary', '无摘要')}
@@ -230,6 +272,14 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New article'))
 
+            # Sync to Google Drive if configured
+            gdrive_link = await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'articles'),
+                filename=f"{item.id}.md"
+            )
+
+            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
             response = f"""✅ **文章已保存**
 
 📌 **{result.get('title', 'Untitled')}**
@@ -238,7 +288,7 @@ class TelegramBot:
 {result.get('summary', '无摘要')[:300]}...
 
 📁 分类: {result.get('category', 'articles')}
-🏷️ 标签: {', '.join(result.get('tags', [])[:5])}
+🏷️ 标签: {', '.join(result.get('tags', [])[:5])}{gdrive_info}
 
 🔑 ID: `{item.id}`"""
 
@@ -293,10 +343,19 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New image'))
 
+            # Sync to Google Drive if configured (with image)
+            gdrive_link = await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'visualizations'),
+                filename=f"{item.id}.md",
+                image_path=final_image_path
+            )
+
+            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
             response = f"""✅ **图片已分析并保存**
 
 📌 **{result.get('title', 'Image')}**
-📁 分类: {result.get('category', 'visualizations')}
+📁 分类: {result.get('category', 'visualizations')}{gdrive_info}
 
 📝 **内容识别**:
 {result.get('description', '无描述')[:200]}
@@ -340,10 +399,18 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', doc.file_name))
 
+            # Sync to Google Drive if configured
+            gdrive_link = await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'documents'),
+                filename=f"{item.id}.md"
+            )
+
+            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
             response = f"""✅ **文档已处理**
 
 📄 **{doc.file_name}**
-📁 分类: {result.get('category', 'documents')}
+📁 分类: {result.get('category', 'documents')}{gdrive_info}
 
 📝 **摘要**:
 {result.get('summary', '无摘要')[:300]}

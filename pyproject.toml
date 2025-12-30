@@ -45,6 +45,10 @@ full = [
     "feedparser>=6.0.0",
     "openai-whisper>=20231117",
 ]
+gdrive = [
+    "google-api-python-client>=2.0.0",
+    "google-auth>=2.0.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",

@@ -14,8 +14,8 @@ COPY pyproject.toml .
 COPY src/ src/
 COPY config/ config/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e .
+# Install Python dependencies (including Google Drive support)
+RUN pip install --no-cache-dir -e ".[gdrive]"
 
 # Create directories for data persistence
 RUN mkdir -p /app/data/knowledge
@@ -24,6 +24,9 @@ RUN mkdir -p /app/data/knowledge
 ENV TELEGRAM_BOT_TOKEN=""
 ENV ANTHROPIC_API_KEY=""
 ENV KNOWLEDGE_BASE_PATH="/app/data/knowledge"
+# Google Drive sync (optional)
+ENV GOOGLE_CREDENTIALS_JSON=""
+ENV GDRIVE_FOLDER_ID=""
 
 # Expose port for webhook mode (optional)
 EXPOSE 8443
