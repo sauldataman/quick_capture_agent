@@ -321,26 +321,58 @@ class ContentProcessor:
         Returns:
             Dictionary with processed content data
         """
+        # Headers to mimic a real browser request
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+        }
+
         try:
-            # Fetch content (simplified - in production use Firecrawl or similar)
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=30) as response:
+            # Fetch content with proper headers
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+                async with session.get(url, allow_redirects=True) as response:
+                    if response.status != 200:
+                        raise Exception(f"HTTP {response.status}: {response.reason}")
                     html = await response.text()
 
-            # Extract text from HTML (basic extraction)
+            # Extract text from HTML
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(html, 'html.parser')
 
             # Remove scripts and styles
-            for script in soup(["script", "style", "nav", "footer", "header"]):
-                script.decompose()
+            for element in soup(["script", "style", "nav", "footer", "header", "aside", "noscript"]):
+                element.decompose()
 
             # Get title
-            title = soup.title.string if soup.title else "Untitled"
+            title = "Untitled"
+            if soup.title and soup.title.string:
+                title = soup.title.string.strip()
+            # Try og:title as fallback
+            og_title = soup.find("meta", property="og:title")
+            if og_title and og_title.get("content"):
+                title = og_title["content"]
 
-            # Get main content
-            article = soup.find('article') or soup.find('main') or soup.body
+            # Get main content with priority order
+            article = (
+                soup.find('article') or
+                soup.find(class_=re.compile(r'article|content|post|entry|main', re.I)) or
+                soup.find(id=re.compile(r'article|content|post|entry|main', re.I)) or
+                soup.find('main') or
+                soup.body
+            )
             text = article.get_text(separator='\n', strip=True) if article else ""
+
+            # Clean up text
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            text = '\n'.join(lines)
+
+            if not text or len(text) < 100:
+                # Fallback: get all text from body
+                text = soup.body.get_text(separator='\n', strip=True) if soup.body else ""
 
             # Process the extracted text
             result = await self.process_text(text)
@@ -348,16 +380,32 @@ class ContentProcessor:
             result["source"] = url
             result["type"] = "article"
             result["category"] = "articles"
+            result["original_url"] = url
 
             return result
 
-        except Exception as e:
+        except aiohttp.ClientError as e:
+            error_msg = f"网络请求失败: {str(e)}"
             return {
                 "id": self._generate_id(url),
                 "type": "article",
-                "title": f"Failed to fetch: {url}",
-                "content": f"Error: {str(e)}",
-                "summary": f"Failed to process URL: {str(e)}",
+                "title": f"抓取失败: {url[:50]}...",
+                "content": error_msg,
+                "summary": error_msg,
+                "key_points": [],
+                "category": "articles",
+                "tags": [],
+                "source": url,
+                "error": str(e),
+            }
+        except Exception as e:
+            error_msg = f"处理失败: {str(e)}"
+            return {
+                "id": self._generate_id(url),
+                "type": "article",
+                "title": f"处理失败: {url[:50]}...",
+                "content": error_msg,
+                "summary": error_msg,
                 "key_points": [],
                 "category": "articles",
                 "tags": [],
