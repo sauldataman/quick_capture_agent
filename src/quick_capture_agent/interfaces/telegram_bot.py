@@ -114,6 +114,14 @@ class TelegramBot:
             return True  # Allow all if no restriction
         return user_id in self.allowed_users
 
+    def _safe_category(self, category_str: str) -> ContentCategory:
+        """Safely convert category string to ContentCategory enum."""
+        try:
+            return ContentCategory(category_str)
+        except ValueError:
+            logger.warning(f"Invalid category '{category_str}', using UNCATEGORIZED")
+            return ContentCategory.UNCATEGORIZED
+
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         if not self._is_authorized(update.effective_user.id):
@@ -195,7 +203,7 @@ class TelegramBot:
                 title=result.get("title", "Untitled"),
                 content=markdown_content,
                 source=result.get("source", "telegram"),
-                category=ContentCategory(result.get("category", "uncategorized")),
+                category=self._safe_category(result.get("category", "uncategorized")),
                 tags=result.get("tags", []),
                 metadata={
                     "telegram_message_id": message.message_id,
@@ -261,7 +269,7 @@ class TelegramBot:
                 title=result.get("title", "Untitled"),
                 content=markdown_content,
                 source=urls[0],
-                category=ContentCategory(result.get("category", "articles")),
+                category=self._safe_category(result.get("category", "articles")),
                 tags=result.get("tags", []),
                 metadata={
                     "original_url": urls[0],
@@ -332,7 +340,7 @@ class TelegramBot:
                 title=result.get("title", "Image Capture"),
                 content=markdown_content,
                 source="telegram_photo",
-                category=ContentCategory(result.get("category", "visualizations")),
+                category=self._safe_category(result.get("category", "visualizations")),
                 tags=result.get("tags", []),
                 metadata={
                     "image_path": str(final_image_path),
@@ -392,7 +400,7 @@ class TelegramBot:
                 title=result.get("title", doc.file_name),
                 content=markdown_content,
                 source=f"telegram_doc:{doc.file_name}",
-                category=ContentCategory(result.get("category", "documents")),
+                category=self._safe_category(result.get("category", "documents")),
                 tags=result.get("tags", []),
             )
 

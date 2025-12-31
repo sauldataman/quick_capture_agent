@@ -18,12 +18,16 @@ class ContentCategory(str, Enum):
     RESEARCH = "research"
     ARTICLES = "articles"
     IMAGES = "images"
+    VISUALIZATIONS = "visualizations"
     PODCASTS = "podcasts"
     VIDEOS = "videos"
     DOCUMENTS = "documents"
     NOTES = "notes"
     BOOKMARKS = "bookmarks"
     REFERENCES = "references"
+    TECH = "tech"
+    AI_SUMMARY = "ai_summary"
+    BUSINESS = "business"
     UNCATEGORIZED = "uncategorized"
 
 
