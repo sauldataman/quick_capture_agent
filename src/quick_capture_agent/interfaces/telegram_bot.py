@@ -312,22 +312,29 @@ class TelegramBot:
             return
 
         message = update.message
-        status_msg = await message.reply_text("🔄 分析图片中...")
+        status_msg = None
 
         try:
+            status_msg = await message.reply_text("🔄 分析图片中...")
+
             # Get the largest photo
             photo = message.photo[-1]
+            logger.info(f"Processing photo: {photo.file_id}")
+
             file = await context.bot.get_file(photo.file_id)
 
             # Download to temp location
             temp_path = Path(f"/tmp/tg_photo_{photo.file_id}.jpg")
             await file.download_to_drive(temp_path)
+            logger.info(f"Downloaded photo to: {temp_path}")
 
             # Get caption if any
             caption = message.caption or ""
 
             # Process the image
             result = await self.processor.process_image(temp_path, caption)
+            logger.info(f"Processed image, category: {result.get('category')}")
+
             markdown_content = self.markdown_gen.generate(result)
 
             # Save image to knowledge base attachments
@@ -335,6 +342,7 @@ class TelegramBot:
             attachment_path.mkdir(exist_ok=True)
             final_image_path = attachment_path / f"{result.get('id', photo.file_id)}.jpg"
             temp_path.rename(final_image_path)
+            logger.info(f"Saved image to: {final_image_path}")
 
             item = self.knowledge_base.add(
                 title=result.get("title", "Image Capture"),
@@ -347,6 +355,7 @@ class TelegramBot:
                     "has_ocr": result.get("has_text", False),
                 }
             )
+            logger.info(f"Added to knowledge base: {item.id}")
 
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New image'))
@@ -375,8 +384,14 @@ class TelegramBot:
             await status_msg.edit_text(response, parse_mode="Markdown")
 
         except Exception as e:
+            import traceback
             logger.error(f"Error processing photo: {e}")
-            await status_msg.edit_text(f"❌ 图片处理失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            error_msg = f"❌ 图片处理失败: {str(e)}"
+            if status_msg:
+                await status_msg.edit_text(error_msg)
+            else:
+                await message.reply_text(error_msg)
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle document messages."""

@@ -96,6 +96,8 @@ class WebhookServer:
         """Handle incoming webhook requests."""
         try:
             data = await request.json()
+            logger.debug(f"Received webhook: {data.get('message', {}).get('text', 'non-text')[:50]}")
+
             update = Update.de_json(data, self.telegram_app.bot)
 
             # Process the update
@@ -104,7 +106,9 @@ class WebhookServer:
             return web.Response(text="OK")
 
         except Exception as e:
+            import traceback
             logger.error(f"Error processing webhook: {e}")
+            logger.error(traceback.format_exc())
             return web.Response(status=500, text=str(e))
 
     async def health_check(self, request: web.Request) -> web.Response:
