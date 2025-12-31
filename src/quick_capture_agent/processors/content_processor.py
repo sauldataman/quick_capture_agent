@@ -311,16 +311,117 @@ class ContentProcessor:
             "processed_at": datetime.now().isoformat(),
         }
 
-    async def process_url(self, url: str) -> dict:
+    # Sites that need special handling (JS rendering, anti-bot, etc.)
+    RESTRICTED_SITES = [
+        "mp.weixin.qq.com",      # WeChat articles
+        "weixin.qq.com",
+        "zhihu.com",            # Zhihu
+        "zhuanlan.zhihu.com",
+        "juejin.cn",            # Juejin
+        "xiaohongshu.com",      # Xiaohongshu
+        "douyin.com",           # Douyin
+        "bilibili.com",         # Bilibili
+        "twitter.com",          # Twitter/X
+        "x.com",
+        "linkedin.com",         # LinkedIn
+        "medium.com",           # Medium (paywall)
+        "notion.so",            # Notion
+    ]
+
+    async def _fetch_with_jina(self, url: str) -> tuple[str, str]:
+        """
+        Fetch URL content using Jina Reader API.
+
+        Returns:
+            Tuple of (title, content)
+        """
+        jina_url = f"https://r.jina.ai/{url}"
+        headers = {
+            "Accept": "text/markdown",
+            "X-Return-Format": "markdown",
+        }
+
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(jina_url, headers=headers) as response:
+                if response.status != 200:
+                    raise Exception(f"Jina Reader failed: HTTP {response.status}")
+                content = await response.text()
+
+        # Parse title from markdown (usually first # heading)
+        lines = content.split('\n')
+        title = "Untitled"
+        for line in lines[:10]:
+            if line.startswith('# '):
+                title = line[2:].strip()
+                break
+            elif line.startswith('Title:'):
+                title = line[6:].strip()
+                break
+
+        return title, content
+
+    def _is_restricted_site(self, url: str) -> bool:
+        """Check if URL is from a restricted site that needs Jina Reader."""
+        from urllib.parse import urlparse
+        try:
+            domain = urlparse(url).netloc.lower()
+            return any(site in domain for site in self.RESTRICTED_SITES)
+        except Exception:
+            return False
+
+    async def process_url(self, url: str, force_jina: bool = False) -> dict:
         """
         Process a URL by fetching and analyzing its content.
 
         Args:
             url: Web page URL
+            force_jina: Force using Jina Reader even for normal sites
 
         Returns:
             Dictionary with processed content data
         """
+        use_jina = force_jina or self._is_restricted_site(url)
+
+        if use_jina:
+            return await self._process_url_with_jina(url)
+        else:
+            return await self._process_url_direct(url)
+
+    async def _process_url_with_jina(self, url: str) -> dict:
+        """Process URL using Jina Reader API."""
+        try:
+            title, content = await self._fetch_with_jina(url)
+
+            # Process the extracted content
+            result = await self.process_text(content)
+            result["title"] = title
+            result["source"] = url
+            result["type"] = "article"
+            result["category"] = "articles"
+            result["original_url"] = url
+            result["fetcher"] = "jina_reader"
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Jina Reader 抓取失败: {str(e)}"
+            return {
+                "id": self._generate_id(url),
+                "type": "article",
+                "title": f"抓取失败: {url[:50]}...",
+                "content": error_msg,
+                "summary": error_msg,
+                "key_points": [],
+                "category": "articles",
+                "tags": [],
+                "source": url,
+                "error": str(e),
+                "fetcher": "jina_reader",
+            }
+
+    async def _process_url_direct(self, url: str) -> dict:
+        """Process URL with direct HTTP fetch."""
         # Headers to mimic a real browser request
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -381,10 +482,17 @@ class ContentProcessor:
             result["type"] = "article"
             result["category"] = "articles"
             result["original_url"] = url
+            result["fetcher"] = "direct"
 
             return result
 
         except aiohttp.ClientError as e:
+            # Direct fetch failed, try Jina Reader as fallback
+            try:
+                return await self._process_url_with_jina(url)
+            except Exception:
+                pass
+
             error_msg = f"网络请求失败: {str(e)}"
             return {
                 "id": self._generate_id(url),
@@ -397,8 +505,15 @@ class ContentProcessor:
                 "tags": [],
                 "source": url,
                 "error": str(e),
+                "fetcher": "direct",
             }
         except Exception as e:
+            # Direct fetch failed, try Jina Reader as fallback
+            try:
+                return await self._process_url_with_jina(url)
+            except Exception:
+                pass
+
             error_msg = f"处理失败: {str(e)}"
             return {
                 "id": self._generate_id(url),
@@ -411,6 +526,7 @@ class ContentProcessor:
                 "tags": [],
                 "source": url,
                 "error": str(e),
+                "fetcher": "direct",
             }
 
     async def process_image(self, image_path: Path, caption: str = "") -> dict:
