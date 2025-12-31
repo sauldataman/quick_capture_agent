@@ -339,9 +339,11 @@ class TelegramBot:
 
             # Save image to knowledge base attachments
             attachment_path = self.knowledge_base.base_path / "_attachments"
-            attachment_path.mkdir(exist_ok=True)
+            attachment_path.mkdir(exist_ok=True, parents=True)
             final_image_path = attachment_path / f"{result.get('id', photo.file_id)}.jpg"
-            temp_path.rename(final_image_path)
+            # Use shutil.move instead of rename for cross-filesystem support
+            import shutil
+            shutil.move(str(temp_path), str(final_image_path))
             logger.info(f"Saved image to: {final_image_path}")
 
             item = self.knowledge_base.add(
