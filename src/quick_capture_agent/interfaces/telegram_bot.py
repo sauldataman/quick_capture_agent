@@ -206,57 +206,50 @@ class TelegramBot:
             await update.message.reply_text("⛔ Unauthorized")
             return
 
-        welcome = """🚀 **Quick Capture Agent**
+        welcome = """🚀 Quick Capture Agent
 
 我是你的知识捕获助手！发送以下内容给我：
 
-📝 **文字** - 直接粘贴文章或笔记
-🔗 **链接** - 网页URL，我会自动抓取
-🖼️ **图片** - 截图、图表、信息图
-📄 **文件** - PDF、文档等
+📝 文字 - 直接粘贴文章或笔记
+🔗 链接 - 网页URL，我会自动抓取
+🖼️ 图片 - 截图、图表、信息图
+📄 文件 - PDF、文档等
 
-**命令：**
-/capture - 开始捕获（默认模式）
-/category <类别> - 设置分类
-/tags <标签> - 添加标签
+命令：
 /search <关键词> - 搜索知识库
-/stats - 查看统计
+/get <ID> - 获取指定内容
 /recent - 最近捕获
+/stats - 查看统计
 
 直接发送内容即可，我会自动处理并存入知识库！"""
 
-        await update.message.reply_text(welcome, parse_mode="Markdown")
+        await update.message.reply_text(welcome)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command."""
         if not self._is_authorized(update.effective_user.id):
             return
 
-        help_text = """📖 **使用帮助**
+        help_text = """📖 使用帮助
 
-**内容类型支持：**
+内容类型支持：
 • 文章链接 → 自动抓取、总结、分类
 • 纯文本 → 识别类型、提取要点
 • 图片 → OCR + 视觉分析
 • 文件 → 解析并提取内容
 
-**分类命令：**
-`/category tech` - 设置为技术类
-`/category ai` - 设置为AI类
-`/category business` - 设置为商业类
+常用命令：
+/search <关键词> - 搜索知识库
+/get <ID> - 获取指定ID的内容
+/recent - 查看最近捕获
+/stats - 查看统计信息
 
-**标签命令：**
-`/tags python,机器学习` - 添加标签
-
-**搜索：**
-`/search transformer` - 搜索知识库
-
-**提示：**
+提示：
 • 发送图片时可以添加说明文字
 • 转发的消息会保留来源信息
-• AI总结内容会自动识别"""
+• 知乎、微信等受限网站会自动使用Jina Reader"""
 
-        await update.message.reply_text(help_text, parse_mode="Markdown")
+        await update.message.reply_text(help_text)
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle text messages."""
@@ -569,12 +562,53 @@ class TelegramBot:
             await update.message.reply_text("📭 知识库为空")
             return
 
-        response = "📋 **最近捕获**\n\n"
+        response = "📋 最近捕获\n\n"
         for item in recent:
-            response += f"📌 **{item.title[:40]}**\n"
-            response += f"   {item.created_at[:10]} | {item.category.value}\n\n"
+            safe_title = self._safe_markdown_text(item.title[:40], 50)
+            response += f"📌 {safe_title}\n"
+            response += f"   {item.created_at[:10]} | {item.category.value}\n"
+            response += f"   🔑 {item.id}\n\n"
 
-        await update.message.reply_text(response, parse_mode="Markdown")
+        await update.message.reply_text(response)
+
+    async def get_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /get <id> command to retrieve stored content."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        if not context.args:
+            await update.message.reply_text("用法: /get <ID>\n\n例如: /get 20260108163615-adc280b4")
+            return
+
+        item_id = context.args[0]
+        item = self.knowledge_base.get(item_id)
+
+        if not item:
+            await update.message.reply_text(f"❌ 未找到 ID: {item_id}\n\n使用 /search 或 /recent 查看可用内容")
+            return
+
+        # Format the content for display
+        safe_title = self._safe_markdown_text(item.title, 100)
+        safe_content = item.content[:2000] if len(item.content) > 2000 else item.content
+        tags_str = ', '.join(item.tags) if item.tags else '无'
+
+        response = f"""📄 内容详情
+
+🔑 ID: {item.id}
+📌 标题: {safe_title}
+📁 分类: {item.category.value}
+🏷️ 标签: {tags_str}
+🔗 来源: {item.source or '无'}
+📅 创建: {item.created_at[:19]}
+
+📝 内容:
+{safe_content}"""
+
+        # Telegram has a 4096 character limit
+        if len(response) > 4000:
+            response = response[:3997] + "..."
+
+        await update.message.reply_text(response)
 
     def run(self) -> None:
         """Start the bot."""
@@ -586,6 +620,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("search", self.search_command))
         self.app.add_handler(CommandHandler("stats", self.stats_command))
         self.app.add_handler(CommandHandler("recent", self.recent_command))
+        self.app.add_handler(CommandHandler("get", self.get_command))
 
         # Message handlers
         self.app.add_handler(MessageHandler(

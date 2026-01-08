@@ -328,6 +328,31 @@ class ContentProcessor:
         "notion.so",            # Notion
     ]
 
+    def _extract_title_from_url(self, url: str) -> str:
+        """Extract a readable title from URL path."""
+        from urllib.parse import urlparse, unquote
+        try:
+            parsed = urlparse(url)
+            # Get the path and remove common extensions
+            path = parsed.path.rstrip('/')
+            if path:
+                # Get last segment of path
+                segment = path.split('/')[-1]
+                # Remove file extensions
+                segment = re.sub(r'\.(html?|php|aspx?)$', '', segment, flags=re.I)
+                # URL decode
+                segment = unquote(segment)
+                # Replace dashes/underscores with spaces
+                segment = re.sub(r'[-_]', ' ', segment)
+                # Remove numeric IDs at the end (like zhihu's p/1991073922217709984)
+                segment = re.sub(r'^\d+$', '', segment)
+                if segment and len(segment) > 3:
+                    return segment.title()
+            # Fallback to domain
+            return parsed.netloc
+        except Exception:
+            return "Untitled"
+
     async def _fetch_with_jina(self, url: str) -> tuple[str, str]:
         """
         Fetch URL content using Jina Reader API.
@@ -348,16 +373,34 @@ class ContentProcessor:
                     raise Exception(f"Jina Reader failed: HTTP {response.status}")
                 content = await response.text()
 
+        # Check if content indicates an error (403, blocked, etc.)
+        error_indicators = [
+            "error 403", "error 401", "forbidden", "blocked",
+            "access denied", "please verify", "captcha"
+        ]
+        content_lower = content.lower()[:500]
+        has_error = any(indicator in content_lower for indicator in error_indicators)
+
         # Parse title from markdown (usually first # heading)
         lines = content.split('\n')
-        title = "Untitled"
+        title = None
         for line in lines[:10]:
             if line.startswith('# '):
-                title = line[2:].strip()
-                break
+                candidate = line[2:].strip()
+                # Skip error-like titles or generic site slogans
+                if candidate and len(candidate) > 3:
+                    if not any(x in candidate.lower() for x in ['error', '403', '验证', '登录']):
+                        title = candidate
+                        break
             elif line.startswith('Title:'):
-                title = line[6:].strip()
-                break
+                candidate = line[6:].strip()
+                if candidate and len(candidate) > 3:
+                    title = candidate
+                    break
+
+        # If no title found or error detected, try to extract from URL
+        if not title or has_error:
+            title = self._extract_title_from_url(url)
 
         return title, content
 
@@ -393,6 +436,14 @@ class ContentProcessor:
         try:
             title, content = await self._fetch_with_jina(url)
 
+            # Check if content indicates a fetch error (403, blocked, etc.)
+            error_indicators = [
+                "error 403", "error 401", "forbidden", "blocked",
+                "access denied", "please verify", "captcha"
+            ]
+            content_lower = content.lower()[:500]
+            fetch_failed = any(indicator in content_lower for indicator in error_indicators)
+
             # Process the extracted content
             result = await self.process_text(content)
             result["title"] = title
@@ -402,6 +453,13 @@ class ContentProcessor:
             result["original_url"] = url
             result["fetcher"] = "jina_reader"
 
+            # Add warning if fetch was partial/failed
+            if fetch_failed:
+                result["fetch_warning"] = "内容抓取受限，可能不完整"
+                # Update summary to reflect the issue
+                if "403" in content or "forbidden" in content_lower:
+                    result["summary"] = f"⚠️ 网站返回403错误，内容抓取受限。标题: {title}"
+
             return result
 
         except Exception as e:
@@ -409,7 +467,7 @@ class ContentProcessor:
             return {
                 "id": self._generate_id(url),
                 "type": "article",
-                "title": f"抓取失败: {url[:50]}...",
+                "title": self._extract_title_from_url(url),
                 "content": error_msg,
                 "summary": error_msg,
                 "key_points": [],
