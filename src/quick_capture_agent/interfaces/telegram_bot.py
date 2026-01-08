@@ -122,6 +122,59 @@ class TelegramBot:
             logger.warning(f"Invalid category '{category_str}', using UNCATEGORIZED")
             return ContentCategory.UNCATEGORIZED
 
+    async def _process_url_message(self, message, url: str) -> None:
+        """Process a URL and save to knowledge base."""
+        status_msg = await message.reply_text(f"🔄 正在抓取: {url[:50]}...")
+
+        try:
+            result = await self.processor.process_url(url)
+            markdown_content = self.markdown_gen.generate(result)
+
+            item = self.knowledge_base.add(
+                title=result.get("title", "Untitled"),
+                content=markdown_content,
+                source=url,
+                category=self._safe_category(result.get("category", "articles")),
+                tags=result.get("tags", []),
+                metadata={
+                    "original_url": url,
+                    "telegram_message_id": message.message_id,
+                    "fetcher": result.get("fetcher", "unknown"),
+                }
+            )
+
+            # Sync to git if configured
+            await self._sync_to_git(result.get('title', 'New article'))
+
+            # Sync to Google Drive if configured
+            gdrive_link = await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'articles'),
+                filename=f"{item.id}.md"
+            )
+
+            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
+            fetcher_info = f"\n🔧 抓取方式: {result.get('fetcher', 'unknown')}"
+            response = f"""✅ **文章已保存**
+
+📌 **{result.get('title', 'Untitled')}**
+
+📝 **摘要**:
+{result.get('summary', '无摘要')[:300]}...
+
+📁 分类: {result.get('category', 'articles')}
+🏷️ 标签: {', '.join(result.get('tags', [])[:5])}{fetcher_info}{gdrive_info}
+
+🔑 ID: `{item.id}`"""
+
+            await status_msg.edit_text(response, parse_mode="Markdown")
+
+        except Exception as e:
+            import traceback
+            logger.error(f"Error processing URL: {e}")
+            logger.error(traceback.format_exc())
+            await status_msg.edit_text(f"❌ 抓取失败: {str(e)}")
+
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         if not self._is_authorized(update.effective_user.id):
@@ -188,6 +241,16 @@ class TelegramBot:
         message = update.message
         text = message.text
 
+        # Check if text contains URL - if so, process as URL
+        import re
+        url_pattern = r'https?://[^\s]+'
+        urls = re.findall(url_pattern, text)
+        if urls:
+            # Redirect to URL handler
+            logger.info(f"Detected URL in text: {urls[0]}")
+            await self._process_url_message(message, urls[0])
+            return
+
         # Send processing indicator
         status_msg = await message.reply_text("🔄 处理中...")
 
@@ -243,68 +306,33 @@ class TelegramBot:
             await status_msg.edit_text(f"❌ 处理失败: {str(e)}")
 
     async def handle_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle URL messages."""
+        """Handle URL messages (triggered by filters.Entity('url'))."""
         if not self._is_authorized(update.effective_user.id):
             return
 
         message = update.message
-        # Extract URL from message
-        urls = [e.url for e in message.entities if e.type == "url"]
+        # Extract URL from message entities
+        import re
+        urls = []
+
+        # Try from entities first
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == "url":
+                    # Extract URL from text using entity offset and length
+                    url = message.text[entity.offset:entity.offset + entity.length]
+                    urls.append(url)
+
+        # Fallback: find URL in text with regex
         if not urls:
-            # Try to find URL in text
-            import re
-            urls = re.findall(r'https?://\S+', message.text)
+            urls = re.findall(r'https?://[^\s]+', message.text)
 
         if not urls:
             await message.reply_text("❌ 未找到有效链接")
             return
 
-        status_msg = await message.reply_text(f"🔄 正在抓取: {urls[0][:50]}...")
-
-        try:
-            result = await self.processor.process_url(urls[0])
-            markdown_content = self.markdown_gen.generate(result)
-
-            item = self.knowledge_base.add(
-                title=result.get("title", "Untitled"),
-                content=markdown_content,
-                source=urls[0],
-                category=self._safe_category(result.get("category", "articles")),
-                tags=result.get("tags", []),
-                metadata={
-                    "original_url": urls[0],
-                    "telegram_message_id": message.message_id,
-                }
-            )
-
-            # Sync to git if configured
-            await self._sync_to_git(result.get('title', 'New article'))
-
-            # Sync to Google Drive if configured
-            gdrive_link = await self._sync_to_gdrive(
-                content=markdown_content,
-                category=result.get('category', 'articles'),
-                filename=f"{item.id}.md"
-            )
-
-            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
-            response = f"""✅ **文章已保存**
-
-📌 **{result.get('title', 'Untitled')}**
-
-📝 **摘要**:
-{result.get('summary', '无摘要')[:300]}...
-
-📁 分类: {result.get('category', 'articles')}
-🏷️ 标签: {', '.join(result.get('tags', [])[:5])}{gdrive_info}
-
-🔑 ID: `{item.id}`"""
-
-            await status_msg.edit_text(response, parse_mode="Markdown")
-
-        except Exception as e:
-            logger.error(f"Error processing URL: {e}")
-            await status_msg.edit_text(f"❌ 抓取失败: {str(e)}")
+        logger.info(f"handle_url: found URL {urls[0]}")
+        await self._process_url_message(message, urls[0])
 
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle photo messages."""
