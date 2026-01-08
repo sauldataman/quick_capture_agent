@@ -122,6 +122,25 @@ class TelegramBot:
             logger.warning(f"Invalid category '{category_str}', using UNCATEGORIZED")
             return ContentCategory.UNCATEGORIZED
 
+    def _escape_markdown(self, text: str) -> str:
+        """Escape special characters for Telegram Markdown."""
+        if not text:
+            return ""
+        # Escape special markdown characters
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+        return text
+
+    def _safe_markdown_text(self, text: str, max_length: int = 300) -> str:
+        """Make text safe for Telegram markdown, with length limit."""
+        if not text:
+            return "无"
+        # Truncate first, then escape
+        if len(text) > max_length:
+            text = text[:max_length] + "..."
+        return self._escape_markdown(text)
+
     async def _process_url_message(self, message, url: str) -> None:
         """Process a URL and save to knowledge base."""
         status_msg = await message.reply_text(f"🔄 正在抓取: {url[:50]}...")
@@ -153,21 +172,27 @@ class TelegramBot:
                 filename=f"{item.id}.md"
             )
 
-            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
+            gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
             fetcher_info = f"\n🔧 抓取方式: {result.get('fetcher', 'unknown')}"
-            response = f"""✅ **文章已保存**
 
-📌 **{result.get('title', 'Untitled')}**
+            # Escape special characters for Telegram markdown
+            safe_title = self._safe_markdown_text(result.get('title', 'Untitled'), 100)
+            safe_summary = self._safe_markdown_text(result.get('summary', '无摘要'), 300)
+            safe_tags = ', '.join(result.get('tags', [])[:5]) or '无'
 
-📝 **摘要**:
-{result.get('summary', '无摘要')[:300]}...
+            response = f"""✅ 文章已保存
+
+📌 {safe_title}
+
+📝 摘要:
+{safe_summary}
 
 📁 分类: {result.get('category', 'articles')}
-🏷️ 标签: {', '.join(result.get('tags', [])[:5])}{fetcher_info}{gdrive_info}
+🏷️ 标签: {safe_tags}{fetcher_info}{gdrive_info}
 
-🔑 ID: `{item.id}`"""
+🔑 ID: {item.id}"""
 
-            await status_msg.edit_text(response, parse_mode="Markdown")
+            await status_msg.edit_text(response)
 
         except Exception as e:
             import traceback
@@ -286,20 +311,23 @@ class TelegramBot:
                 filename=f"{item.id}.md"
             )
 
-            # Send confirmation
-            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
-            response = f"""✅ **已保存到知识库**
+            # Send confirmation (plain text to avoid markdown issues)
+            gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
+            safe_title = self._safe_markdown_text(result.get('title', 'Untitled'), 80)
+            safe_summary = self._safe_markdown_text(result.get('summary', '无摘要'), 200)
 
-📌 **标题**: {result.get('title', 'Untitled')}
-📁 **分类**: {result.get('category', 'uncategorized')}
-🏷️ **标签**: {', '.join(result.get('tags', [])) or '无'}{gdrive_info}
+            response = f"""✅ 已保存到知识库
 
-📝 **摘要**:
-{result.get('summary', '无摘要')}
+📌 标题: {safe_title}
+📁 分类: {result.get('category', 'uncategorized')}
+🏷️ 标签: {', '.join(result.get('tags', [])) or '无'}{gdrive_info}
 
-🔑 ID: `{item.id}`"""
+📝 摘要:
+{safe_summary}
 
-            await status_msg.edit_text(response, parse_mode="Markdown")
+🔑 ID: {item.id}"""
+
+            await status_msg.edit_text(response)
 
         except Exception as e:
             logger.error(f"Error processing text: {e}")
@@ -398,20 +426,23 @@ class TelegramBot:
                 image_path=final_image_path
             )
 
-            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
-            response = f"""✅ **图片已分析并保存**
+            gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
+            safe_title = self._safe_markdown_text(result.get('title', 'Image'), 80)
+            safe_desc = self._safe_markdown_text(result.get('description', '无描述'), 200)
+            extracted = result.get('extracted_text', '')
+            ocr_info = f"\n📄 提取的文字: {self._safe_markdown_text(extracted, 100)}" if extracted else ""
 
-📌 **{result.get('title', 'Image')}**
+            response = f"""✅ 图片已分析并保存
+
+📌 {safe_title}
 📁 分类: {result.get('category', 'visualizations')}{gdrive_info}
 
-📝 **内容识别**:
-{result.get('description', '无描述')[:200]}
+📝 内容识别:
+{safe_desc}{ocr_info}
 
-{'📄 **提取的文字**: ' + result.get('extracted_text', '')[:100] + '...' if result.get('extracted_text') else ''}
+🔑 ID: {item.id}"""
 
-🔑 ID: `{item.id}`"""
-
-            await status_msg.edit_text(response, parse_mode="Markdown")
+            await status_msg.edit_text(response)
 
         except Exception as e:
             import traceback
@@ -459,18 +490,21 @@ class TelegramBot:
                 filename=f"{item.id}.md"
             )
 
-            gdrive_info = f"\n☁️ [Google Drive]({gdrive_link})" if gdrive_link else ""
-            response = f"""✅ **文档已处理**
+            gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
+            safe_filename = self._safe_markdown_text(doc.file_name, 50)
+            safe_summary = self._safe_markdown_text(result.get('summary', '无摘要'), 300)
 
-📄 **{doc.file_name}**
+            response = f"""✅ 文档已处理
+
+📄 {safe_filename}
 📁 分类: {result.get('category', 'documents')}{gdrive_info}
 
-📝 **摘要**:
-{result.get('summary', '无摘要')[:300]}
+📝 摘要:
+{safe_summary}
 
-🔑 ID: `{item.id}`"""
+🔑 ID: {item.id}"""
 
-            await status_msg.edit_text(response, parse_mode="Markdown")
+            await status_msg.edit_text(response)
 
             # Clean up
             temp_path.unlink(missing_ok=True)
