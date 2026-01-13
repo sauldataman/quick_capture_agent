@@ -610,6 +610,49 @@ class TelegramBot:
 
         await update.message.reply_text(response)
 
+    async def test_gdrive_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /test_gdrive command to test Google Drive integration."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        await update.message.reply_text("🔄 测试 Google Drive 连接...")
+
+        gdrive = get_gdrive_sync()
+
+        if not gdrive:
+            await update.message.reply_text(
+                "❌ Google Drive 未配置\n\n"
+                "请设置以下环境变量:\n"
+                "• GOOGLE_CREDENTIALS_JSON\n"
+                "• GDRIVE_FOLDER_ID (可选)"
+            )
+            return
+
+        try:
+            # Test upload
+            test_content = f"""# Google Drive 测试
+
+测试时间: {datetime.now().isoformat()}
+
+如果你能在 Google Drive 看到这个文件，说明集成成功！✅
+"""
+            result = await gdrive.upload_content(
+                content=test_content,
+                remote_path="test/connection_test.md"
+            )
+
+            response = f"""✅ Google Drive 测试成功!
+
+📄 文件已上传: test/connection_test.md
+🔗 链接: {result.get('webViewLink', '无')}
+
+请检查你的 Google Drive 文件夹。"""
+
+            await update.message.reply_text(response)
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ 测试失败: {str(e)}")
+
     def run(self) -> None:
         """Start the bot."""
         self.app = Application.builder().token(self.token).build()
@@ -621,6 +664,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("stats", self.stats_command))
         self.app.add_handler(CommandHandler("recent", self.recent_command))
         self.app.add_handler(CommandHandler("get", self.get_command))
+        self.app.add_handler(CommandHandler("test_gdrive", self.test_gdrive_command))
 
         # Message handlers
         self.app.add_handler(MessageHandler(
