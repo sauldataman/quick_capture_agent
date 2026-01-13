@@ -612,23 +612,40 @@ class TelegramBot:
 
     async def test_gdrive_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /test_gdrive command to test Google Drive integration."""
-        if not self._is_authorized(update.effective_user.id):
-            return
-
-        await update.message.reply_text("🔄 测试 Google Drive 连接...")
-
-        gdrive = get_gdrive_sync()
-
-        if not gdrive:
-            await update.message.reply_text(
-                "❌ Google Drive 未配置\n\n"
-                "请设置以下环境变量:\n"
-                "• GOOGLE_CREDENTIALS_JSON\n"
-                "• GDRIVE_FOLDER_ID (可选)"
-            )
-            return
-
         try:
+            if not self._is_authorized(update.effective_user.id):
+                return
+
+            await update.message.reply_text("🔄 测试 Google Drive 连接...")
+
+            # Check environment variables first
+            import os
+            has_creds = bool(os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_CREDENTIALS_PATH"))
+            folder_id = os.getenv("GDRIVE_FOLDER_ID", "未设置")
+
+            if not has_creds:
+                await update.message.reply_text(
+                    "❌ Google Drive 凭证未配置\n\n"
+                    "请在 Railway 设置环境变量:\n"
+                    "• GOOGLE_CREDENTIALS_JSON = {整个JSON内容}\n"
+                    "• GDRIVE_FOLDER_ID = 文件夹ID (可选)"
+                )
+                return
+
+            # Try to get gdrive sync
+            gdrive = get_gdrive_sync()
+
+            if not gdrive:
+                await update.message.reply_text(
+                    f"❌ Google Drive 初始化失败\n\n"
+                    f"凭证已设置: ✅\n"
+                    f"Folder ID: {folder_id}\n\n"
+                    f"可能原因:\n"
+                    f"• google-api-python-client 未安装\n"
+                    f"• 凭证JSON格式错误"
+                )
+                return
+
             # Test upload
             test_content = f"""# Google Drive 测试
 
@@ -651,6 +668,8 @@ class TelegramBot:
             await update.message.reply_text(response)
 
         except Exception as e:
+            import traceback
+            logger.error(f"test_gdrive error: {traceback.format_exc()}")
             await update.message.reply_text(f"❌ 测试失败: {str(e)}")
 
     def run(self) -> None:
