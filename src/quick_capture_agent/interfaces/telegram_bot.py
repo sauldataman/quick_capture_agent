@@ -622,15 +622,25 @@ class TelegramBot:
             import os
             has_creds = bool(os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_CREDENTIALS_PATH"))
             folder_id = os.getenv("GDRIVE_FOLDER_ID", "未设置")
+            delegated_user = os.getenv("GDRIVE_DELEGATED_USER", "")
 
             if not has_creds:
                 await update.message.reply_text(
                     "❌ Google Drive 凭证未配置\n\n"
                     "请在 Railway 设置环境变量:\n"
                     "• GOOGLE_CREDENTIALS_JSON = {整个JSON内容}\n"
-                    "• GDRIVE_FOLDER_ID = 文件夹ID (可选)"
+                    "• GDRIVE_FOLDER_ID = 文件夹ID (可选)\n"
+                    "• GDRIVE_DELEGATED_USER = 邮箱 (域委派模式)"
                 )
                 return
+
+            # Show config status
+            config_status = f"📋 配置状态:\n"
+            config_status += f"• 凭证: ✅\n"
+            config_status += f"• Folder ID: {folder_id}\n"
+            config_status += f"• 委派用户: {delegated_user or '未设置 (直接模式)'}\n"
+
+            await update.message.reply_text(config_status + "\n正在测试上传...")
 
             # Try to get gdrive sync
             gdrive = get_gdrive_sync()
@@ -638,8 +648,6 @@ class TelegramBot:
             if not gdrive:
                 await update.message.reply_text(
                     f"❌ Google Drive 初始化失败\n\n"
-                    f"凭证已设置: ✅\n"
-                    f"Folder ID: {folder_id}\n\n"
                     f"可能原因:\n"
                     f"• google-api-python-client 未安装\n"
                     f"• 凭证JSON格式错误"
@@ -650,6 +658,7 @@ class TelegramBot:
             test_content = f"""# Google Drive 测试
 
 测试时间: {datetime.now().isoformat()}
+委派用户: {delegated_user or '无 (直接模式)'}
 
 如果你能在 Google Drive 看到这个文件，说明集成成功！✅
 """
@@ -662,6 +671,7 @@ class TelegramBot:
 
 📄 文件已上传: test/connection_test.md
 🔗 链接: {result.get('webViewLink', '无')}
+👤 模式: {'域委派 (' + delegated_user + ')' if delegated_user else '直接模式'}
 
 请检查你的 Google Drive 文件夹。"""
 
@@ -680,6 +690,10 @@ class TelegramBot:
                 hint = "\n\n💡 提示: GOOGLE_CREDENTIALS_JSON 格式错误\n确保是完整的JSON，不要有多余引号或换行"
             elif "invalid_grant" in error_msg:
                 hint = "\n\n💡 提示: 凭证已过期或无效"
+            elif "Not Authorized" in error_msg or "unauthorized_client" in error_msg:
+                hint = "\n\n💡 提示: 域委派未授权\n请在 Google Workspace 管理控制台添加:\n• 客户端ID + OAuth范围 (drive)"
+            elif "storageQuota" in error_msg:
+                hint = "\n\n💡 提示: 存储配额错误\n请设置 GDRIVE_DELEGATED_USER 环境变量为你的邮箱"
             elif "access" in error_msg.lower():
                 hint = "\n\n💡 提示: 检查服务账号是否有文件夹访问权限"
 

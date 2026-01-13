@@ -31,18 +31,20 @@ class GoogleDriveSync:
     Google Drive synchronization for knowledge base files.
 
     Supports two authentication methods:
-    1. Service Account (recommended for servers)
-    2. OAuth2 credentials file
+    1. Service Account with Domain-wide Delegation (recommended for Google Workspace)
+    2. Service Account with shared folder access
 
     Usage:
         sync = GoogleDriveSync(
             credentials_path="/path/to/credentials.json",
-            folder_id="your-drive-folder-id"
+            folder_id="your-drive-folder-id",
+            delegated_user="user@yourdomain.com"  # For delegation
         )
         await sync.upload_file(local_path, "notes/my-note.md")
     """
 
-    SCOPES = ['https://www.googleapis.com/auth/drive.file']
+    # Full drive access for delegation mode
+    SCOPES = ['https://www.googleapis.com/auth/drive']
 
     def __init__(
         self,
@@ -50,6 +52,7 @@ class GoogleDriveSync:
         credentials_json: Optional[str] = None,
         folder_id: Optional[str] = None,
         folder_name: str = "QuickCapture",
+        delegated_user: Optional[str] = None,
     ):
         """
         Initialize Google Drive sync.
@@ -59,6 +62,7 @@ class GoogleDriveSync:
             credentials_json: Service account JSON as string (for env vars)
             folder_id: Google Drive folder ID to sync to
             folder_name: Folder name to create if folder_id not specified
+            delegated_user: Email of user to impersonate (for domain-wide delegation)
         """
         if not GOOGLE_API_AVAILABLE:
             raise ImportError(
@@ -70,26 +74,34 @@ class GoogleDriveSync:
         self.credentials_json = credentials_json or os.getenv("GOOGLE_CREDENTIALS_JSON")
         self.folder_id = folder_id or os.getenv("GDRIVE_FOLDER_ID")
         self.folder_name = folder_name
+        self.delegated_user = delegated_user or os.getenv("GDRIVE_DELEGATED_USER")
 
         self._service = None
         self._folder_cache = {}  # Cache for subfolder IDs
 
     def _get_credentials(self):
-        """Get Google API credentials."""
+        """Get Google API credentials with optional delegation."""
         if self.credentials_json:
             # Parse JSON from environment variable
             creds_dict = json.loads(self.credentials_json)
-            return service_account.Credentials.from_service_account_info(
+            credentials = service_account.Credentials.from_service_account_info(
                 creds_dict, scopes=self.SCOPES
             )
         elif self.credentials_path:
-            return service_account.Credentials.from_service_account_file(
+            credentials = service_account.Credentials.from_service_account_file(
                 self.credentials_path, scopes=self.SCOPES
             )
         else:
             raise ValueError(
                 "Google credentials required. Set GOOGLE_CREDENTIALS_JSON or GOOGLE_CREDENTIALS_PATH"
             )
+
+        # Apply domain-wide delegation if user is specified
+        if self.delegated_user:
+            credentials = credentials.with_subject(self.delegated_user)
+            logger.info(f"Using domain-wide delegation as: {self.delegated_user}")
+
+        return credentials
 
     @property
     def service(self):
