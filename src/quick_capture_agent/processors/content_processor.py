@@ -632,33 +632,33 @@ class ContentProcessor:
         """
         content = ""
         title = doc_path.stem
+        extraction_method = "none"
 
         # Handle PDF
         if mime_type == "application/pdf" or doc_path.suffix.lower() == ".pdf":
-            try:
-                import pypdf
-                with open(doc_path, 'rb') as f:
-                    reader = pypdf.PdfReader(f)
-                    content = "\n".join(page.extract_text() for page in reader.pages)
-            except ImportError:
-                content = "[PDF processing requires pypdf library]"
-            except Exception as e:
-                content = f"[Error reading PDF: {e}]"
+            content, extraction_method = await self._extract_pdf_content(doc_path)
 
         # Handle text files
-        elif doc_path.suffix.lower() in ['.txt', '.md', '.json']:
+        elif doc_path.suffix.lower() in ['.txt', '.md', '.json', '.csv']:
             try:
-                content = doc_path.read_text()
-            except Exception as e:
-                content = f"[Error reading file: {e}]"
+                content = doc_path.read_text(encoding='utf-8')
+                extraction_method = "text"
+            except UnicodeDecodeError:
+                try:
+                    content = doc_path.read_text(encoding='latin-1')
+                    extraction_method = "text_latin1"
+                except Exception as e:
+                    content = f"[Error reading file: {e}]"
 
         # Process the extracted content
-        if content:
+        if content and not content.startswith("["):
             result = await self.process_text(content)
             result["title"] = title
             result["source"] = str(doc_path)
             result["type"] = "document"
             result["category"] = "documents"
+            result["extraction_method"] = extraction_method
+            result["original_filename"] = doc_path.name
             return result
 
         return {
@@ -666,9 +666,74 @@ class ContentProcessor:
             "type": "document",
             "title": title,
             "content": content or "[Unable to extract content]",
-            "summary": f"Document: {title}",
+            "summary": f"Document: {title}" + (f" ({content})" if content.startswith("[") else ""),
             "key_points": [],
             "category": "documents",
             "tags": [],
             "source": str(doc_path),
+            "extraction_method": extraction_method,
+            "original_filename": doc_path.name,
         }
+
+    async def _extract_pdf_content(self, doc_path: Path) -> tuple[str, str]:
+        """
+        Extract text content from PDF using multiple methods.
+
+        Returns:
+            Tuple of (content, extraction_method)
+        """
+        # Try pypdf first
+        try:
+            import pypdf
+            with open(doc_path, 'rb') as f:
+                reader = pypdf.PdfReader(f)
+                pages_text = []
+                for page in reader.pages:
+                    try:
+                        text = page.extract_text()
+                        if text:
+                            pages_text.append(text)
+                    except Exception:
+                        continue
+                if pages_text:
+                    return "\n\n".join(pages_text), "pypdf"
+        except ImportError:
+            pass
+        except Exception as e:
+            # pypdf failed, try alternatives
+            pass
+
+        # Try pdfplumber as fallback
+        try:
+            import pdfplumber
+            with pdfplumber.open(doc_path) as pdf:
+                pages_text = []
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if text:
+                        pages_text.append(text)
+                if pages_text:
+                    return "\n\n".join(pages_text), "pdfplumber"
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # Try PyMuPDF (fitz) as another fallback
+        try:
+            import fitz
+            doc = fitz.open(doc_path)
+            pages_text = []
+            for page in doc:
+                text = page.get_text()
+                if text:
+                    pages_text.append(text)
+            doc.close()
+            if pages_text:
+                return "\n\n".join(pages_text), "pymupdf"
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        return "[PDF处理失败: 请安装 pypdf, pdfplumber 或 pymupdf]", "failed"

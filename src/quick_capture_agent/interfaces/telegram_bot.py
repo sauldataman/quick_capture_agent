@@ -80,10 +80,20 @@ class TelegramBot:
         content: str,
         category: str,
         filename: str,
-        image_path: Optional[Path] = None
+        image_path: Optional[Path] = None,
+        original_file: Optional[Path] = None,
+        item_json: Optional[dict] = None,
     ) -> Optional[str]:
         """
         Sync content to Google Drive if configured.
+
+        Args:
+            content: Markdown content to upload
+            category: Category folder name
+            filename: Filename for the markdown file
+            image_path: Optional image file to upload
+            original_file: Optional original file (PDF, doc, etc.) to upload
+            item_json: Optional item JSON data to upload
 
         Returns the Google Drive link if successful.
         """
@@ -101,6 +111,24 @@ class TelegramBot:
             if image_path and image_path.exists():
                 img_remote = f"_attachments/{image_path.name}"
                 await gdrive.upload_file(image_path, img_remote)
+                logger.info(f"Uploaded image: {img_remote}")
+
+            # Upload original file if present (PDF, documents, etc.)
+            if original_file and original_file.exists():
+                # Use item ID as prefix for unique naming
+                item_id = filename.replace('.md', '')
+                orig_remote = f"_originals/{item_id}_{original_file.name}"
+                await gdrive.upload_file(original_file, orig_remote)
+                logger.info(f"Uploaded original: {orig_remote}")
+
+            # Upload item JSON for full data backup
+            if item_json:
+                json_filename = filename.replace('.md', '.json')
+                json_remote = f"_data/{category}/{json_filename}"
+                import json
+                json_content = json.dumps(item_json, indent=2, ensure_ascii=False)
+                await gdrive.upload_content(json_content, json_remote, mime_type="application/json")
+                logger.info(f"Uploaded JSON: {json_remote}")
 
             return result.get('webViewLink')
 
@@ -165,11 +193,12 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New article'))
 
-            # Sync to Google Drive if configured
+            # Sync to Google Drive if configured (including JSON data)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
                 category=result.get('category', 'articles'),
-                filename=f"{item.id}.md"
+                filename=f"{item.id}.md",
+                item_json=item.to_dict(),
             )
 
             gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
@@ -297,11 +326,12 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New note'))
 
-            # Sync to Google Drive if configured
+            # Sync to Google Drive if configured (including JSON data)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
                 category=result.get('category', 'notes'),
-                filename=f"{item.id}.md"
+                filename=f"{item.id}.md",
+                item_json=item.to_dict(),
             )
 
             # Send confirmation (plain text to avoid markdown issues)
@@ -411,15 +441,16 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New image'))
 
-            # Sync to Google Drive if configured (with image)
+            # Sync to Google Drive if configured (with image and JSON)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
                 category=result.get('category', 'visualizations'),
                 filename=f"{item.id}.md",
-                image_path=final_image_path
+                image_path=final_image_path,
+                item_json=item.to_dict(),
             )
 
-            gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
+            gdrive_info = f"\n☁️ Google Drive: 已同步 (含原图)" if gdrive_link else ""
             safe_title = self._safe_markdown_text(result.get('title', 'Image'), 80)
             safe_desc = self._safe_markdown_text(result.get('description', '无描述'), 200)
             extracted = result.get('extracted_text', '')
@@ -465,32 +496,45 @@ class TelegramBot:
             result = await self.processor.process_document(temp_path, doc.mime_type)
             markdown_content = self.markdown_gen.generate(result)
 
+            # Add metadata about original file
+            metadata = {
+                "original_filename": doc.file_name,
+                "mime_type": doc.mime_type,
+                "file_size": doc.file_size,
+                "telegram_file_id": doc.file_id,
+                "extraction_method": result.get("extraction_method", "unknown"),
+            }
+
             item = self.knowledge_base.add(
                 title=result.get("title", doc.file_name),
                 content=markdown_content,
                 source=f"telegram_doc:{doc.file_name}",
                 category=self._safe_category(result.get("category", "documents")),
                 tags=result.get("tags", []),
+                metadata=metadata,
             )
 
             # Sync to git if configured
             await self._sync_to_git(result.get('title', doc.file_name))
 
-            # Sync to Google Drive if configured
+            # Sync to Google Drive if configured (including original file and JSON)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
                 category=result.get('category', 'documents'),
-                filename=f"{item.id}.md"
+                filename=f"{item.id}.md",
+                original_file=temp_path,  # Upload original file
+                item_json=item.to_dict(),  # Upload JSON data
             )
 
-            gdrive_info = f"\n☁️ Google Drive: 已同步" if gdrive_link else ""
+            gdrive_info = f"\n☁️ Google Drive: 已同步 (含原始文件)" if gdrive_link else ""
             safe_filename = self._safe_markdown_text(doc.file_name, 50)
             safe_summary = self._safe_markdown_text(result.get('summary', '无摘要'), 300)
+            extraction_info = f"\n🔧 提取方式: {result.get('extraction_method', 'unknown')}"
 
             response = f"""✅ 文档已处理
 
 📄 {safe_filename}
-📁 分类: {result.get('category', 'documents')}{gdrive_info}
+📁 分类: {result.get('category', 'documents')}{extraction_info}{gdrive_info}
 
 📝 摘要:
 {safe_summary}
@@ -499,11 +543,13 @@ class TelegramBot:
 
             await status_msg.edit_text(response)
 
-            # Clean up
+            # Clean up temp file after upload
             temp_path.unlink(missing_ok=True)
 
         except Exception as e:
+            import traceback
             logger.error(f"Error processing document: {e}")
+            logger.error(traceback.format_exc())
             await status_msg.edit_text(f"❌ 文档处理失败: {str(e)}")
 
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
