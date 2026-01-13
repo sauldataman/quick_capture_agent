@@ -669,8 +669,27 @@ class TelegramBot:
 
         except Exception as e:
             import traceback
-            logger.error(f"test_gdrive error: {traceback.format_exc()}")
-            await update.message.reply_text(f"❌ 测试失败: {str(e)}")
+            error_trace = traceback.format_exc()
+            logger.error(f"test_gdrive error: {error_trace}")
+
+            # Check common issues
+            error_msg = str(e)
+            hint = ""
+
+            if "Extra data" in error_msg or "JSONDecodeError" in str(type(e)):
+                hint = "\n\n💡 提示: GOOGLE_CREDENTIALS_JSON 格式错误\n确保是完整的JSON，不要有多余引号或换行"
+            elif "invalid_grant" in error_msg:
+                hint = "\n\n💡 提示: 凭证已过期或无效"
+            elif "access" in error_msg.lower():
+                hint = "\n\n💡 提示: 检查服务账号是否有文件夹访问权限"
+
+            # Truncate error trace for Telegram
+            short_trace = error_trace[-400:] if len(error_trace) > 400 else error_trace
+
+            await update.message.reply_text(
+                f"❌ 测试失败: {error_msg}{hint}\n\n"
+                f"错误详情:\n{short_trace}"
+            )
 
     def run(self) -> None:
         """Start the bot."""
