@@ -18,22 +18,34 @@ logger = logging.getLogger(__name__)
 
 
 class ContentCategory(str, Enum):
-    """Categories for organizing knowledge."""
+    """Knowledge base categories for organizing content by knowledge domain."""
 
-    RESEARCH = "research"
-    ARTICLES = "articles"
-    IMAGES = "images"
-    VISUALIZATIONS = "visualizations"
-    PODCASTS = "podcasts"
-    VIDEOS = "videos"
-    DOCUMENTS = "documents"
-    NOTES = "notes"
-    BOOKMARKS = "bookmarks"
-    REFERENCES = "references"
-    TECH = "tech"
-    AI_SUMMARY = "ai_summary"
-    BUSINESS = "business"
-    UNCATEGORIZED = "uncategorized"
+    # Primary knowledge categories
+    THINKING = "thinking"          # 思维方法：思维模型、决策框架、认知偏差
+    TECHNOLOGY = "technology"      # 技术：AI、编程、工具、产品
+    BUSINESS = "business"          # 商业：创业、管理、营销、战略
+    GROWTH = "growth"              # 个人成长：学习、效率、习惯、职业
+    PHILOSOPHY = "philosophy"      # 哲学心理：哲学、心理学、认知科学
+    CREATIVE = "creative"          # 创意设计：设计、写作、艺术
+    FINANCE = "finance"            # 财务投资：投资、理财、经济
+    WELLNESS = "wellness"          # 健康生活：健康、运动、生活方式
+    INBOX = "inbox"                # 收件箱：待分类
+
+    @classmethod
+    def get_description(cls, category: "ContentCategory") -> str:
+        """Get Chinese description for category."""
+        descriptions = {
+            cls.THINKING: "思维方法",
+            cls.TECHNOLOGY: "技术",
+            cls.BUSINESS: "商业",
+            cls.GROWTH: "个人成长",
+            cls.PHILOSOPHY: "哲学心理",
+            cls.CREATIVE: "创意设计",
+            cls.FINANCE: "财务投资",
+            cls.WELLNESS: "健康生活",
+            cls.INBOX: "收件箱",
+        }
+        return descriptions.get(category, "未知")
 
 
 @dataclass

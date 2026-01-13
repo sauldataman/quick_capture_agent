@@ -8,6 +8,8 @@ and processes them through the content collector agent.
 import asyncio
 import logging
 import os
+import re
+import unicodedata
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -28,6 +30,51 @@ from quick_capture_agent.knowledge_base.git_sync import get_git_sync
 from quick_capture_agent.knowledge_base.gdrive_sync import get_gdrive_sync
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_filename(title: str, max_length: int = 50) -> str:
+    """
+    Sanitize title for use as filename.
+
+    - Keeps Chinese, English, numbers
+    - Replaces special characters with underscores
+    - Limits length
+    - Adds date prefix for sorting
+
+    Args:
+        title: Original title
+        max_length: Maximum length for the title part
+
+    Returns:
+        Safe filename like: 2026-01-13_AI趋势分析报告
+    """
+    if not title:
+        title = "untitled"
+
+    # Normalize unicode
+    title = unicodedata.normalize('NFKC', title)
+
+    # Remove or replace unsafe characters
+    # Keep: Chinese chars, alphanumeric, spaces, hyphens
+    safe_title = re.sub(r'[^\w\s\u4e00-\u9fff-]', '', title)
+
+    # Replace multiple spaces/underscores with single underscore
+    safe_title = re.sub(r'[\s_]+', '_', safe_title)
+
+    # Remove leading/trailing underscores
+    safe_title = safe_title.strip('_')
+
+    # Limit length
+    if len(safe_title) > max_length:
+        safe_title = safe_title[:max_length].rstrip('_')
+
+    # Fallback if empty
+    if not safe_title:
+        safe_title = "untitled"
+
+    # Add date prefix
+    date_prefix = datetime.now().strftime("%Y-%m-%d")
+    return f"{date_prefix}_{safe_title}"
 
 
 class TelegramBot:
@@ -193,11 +240,15 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New article'))
 
+            # Generate title-based filename
+            title = result.get('title', 'Untitled')
+            safe_filename = sanitize_filename(title)
+
             # Sync to Google Drive if configured (including JSON data)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
-                category=result.get('category', 'articles'),
-                filename=f"{item.id}.md",
+                category=result.get('category', 'inbox'),
+                filename=f"{safe_filename}.md",
                 item_json=item.to_dict(),
             )
 
@@ -326,11 +377,15 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New note'))
 
+            # Generate title-based filename
+            title = result.get('title', 'Untitled')
+            safe_filename = sanitize_filename(title)
+
             # Sync to Google Drive if configured (including JSON data)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
-                category=result.get('category', 'notes'),
-                filename=f"{item.id}.md",
+                category=result.get('category', 'inbox'),
+                filename=f"{safe_filename}.md",
                 item_json=item.to_dict(),
             )
 
@@ -441,11 +496,15 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', 'New image'))
 
+            # Generate title-based filename
+            title = result.get('title', 'Image')
+            safe_filename = sanitize_filename(title)
+
             # Sync to Google Drive if configured (with image and JSON)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
-                category=result.get('category', 'visualizations'),
-                filename=f"{item.id}.md",
+                category=result.get('category', 'inbox'),
+                filename=f"{safe_filename}.md",
                 image_path=final_image_path,
                 item_json=item.to_dict(),
             )
@@ -517,23 +576,27 @@ class TelegramBot:
             # Sync to git if configured
             await self._sync_to_git(result.get('title', doc.file_name))
 
+            # Generate title-based filename
+            title = result.get('title', doc.file_name)
+            safe_filename = sanitize_filename(title)
+
             # Sync to Google Drive if configured (including original file and JSON)
             gdrive_link = await self._sync_to_gdrive(
                 content=markdown_content,
-                category=result.get('category', 'documents'),
-                filename=f"{item.id}.md",
+                category=result.get('category', 'inbox'),
+                filename=f"{safe_filename}.md",
                 original_file=temp_path,  # Upload original file
                 item_json=item.to_dict(),  # Upload JSON data
             )
 
             gdrive_info = f"\n☁️ Google Drive: 已同步 (含原始文件)" if gdrive_link else ""
-            safe_filename = self._safe_markdown_text(doc.file_name, 50)
+            display_filename = self._safe_markdown_text(doc.file_name, 50)
             safe_summary = self._safe_markdown_text(result.get('summary', '无摘要'), 300)
             extraction_info = f"\n🔧 提取方式: {result.get('extraction_method', 'unknown')}"
 
             response = f"""✅ 文档已处理
 
-📄 {safe_filename}
+📄 {display_filename}
 📁 分类: {result.get('category', 'documents')}{extraction_info}{gdrive_info}
 
 📝 摘要:

@@ -233,57 +233,159 @@ class ContentProcessor:
         return text
 
     def _suggest_category(self, text: str, content_type: ContentType) -> str:
-        """Suggest a category for the content."""
+        """
+        Suggest a knowledge category for the content.
+
+        Categories:
+        - thinking: 思维模型、决策框架、认知偏差
+        - technology: AI、编程、工具、产品
+        - business: 创业、管理、营销、战略
+        - growth: 学习、效率、习惯、职业
+        - philosophy: 哲学、心理学、认知科学
+        - creative: 设计、写作、艺术
+        - finance: 投资、理财、经济
+        - wellness: 健康、运动、生活方式
+        - inbox: 待分类
+        """
         text_lower = text.lower()
 
-        # Category keywords mapping
+        # Knowledge category keywords mapping
         category_keywords = {
-            "ai": ["ai", "machine learning", "deep learning", "neural", "gpt", "llm", "claude", "人工智能", "机器学习"],
-            "tech": ["programming", "code", "software", "api", "framework", "编程", "技术", "开发"],
-            "business": ["business", "startup", "company", "market", "商业", "创业", "投资"],
-            "productivity": ["productivity", "workflow", "效率", "工具", "方法"],
-            "design": ["design", "ui", "ux", "设计", "界面"],
-            "life": ["life", "health", "生活", "健康"],
+            "thinking": [
+                "思维模型", "mental model", "决策", "decision", "认知偏差", "cognitive bias",
+                "第一性原理", "first principles", "框架", "framework", "思考", "thinking",
+                "逻辑", "logic", "推理", "reasoning", "方法论", "methodology"
+            ],
+            "technology": [
+                "ai", "人工智能", "machine learning", "机器学习", "programming", "编程",
+                "code", "代码", "software", "软件", "api", "framework", "开发", "developer",
+                "python", "javascript", "gpt", "llm", "claude", "算法", "algorithm",
+                "产品", "product", "工具", "tool", "技术", "tech"
+            ],
+            "business": [
+                "business", "商业", "startup", "创业", "company", "公司", "market", "市场",
+                "营销", "marketing", "管理", "management", "战略", "strategy", "竞争",
+                "competition", "商业模式", "business model", "增长", "growth hacking"
+            ],
+            "growth": [
+                "学习", "learning", "效率", "productivity", "习惯", "habit", "职业", "career",
+                "成长", "growth", "技能", "skill", "目标", "goal", "时间管理", "time management",
+                "自我提升", "self improvement", "复盘", "review"
+            ],
+            "philosophy": [
+                "哲学", "philosophy", "心理", "psychology", "认知", "cognition", "意识",
+                "consciousness", "存在", "existence", "伦理", "ethics", "智慧", "wisdom",
+                "人生", "life meaning", "斯多葛", "stoic", "佛学", "buddhism", "道家", "taoism"
+            ],
+            "creative": [
+                "设计", "design", "ui", "ux", "写作", "writing", "艺术", "art", "创意",
+                "creative", "美学", "aesthetic", "视觉", "visual", "品牌", "brand",
+                "故事", "storytelling", "内容", "content creation"
+            ],
+            "finance": [
+                "投资", "investment", "理财", "finance", "经济", "economics", "股票", "stock",
+                "基金", "fund", "财务", "financial", "资产", "asset", "收益", "return",
+                "风险", "risk", "估值", "valuation", "crypto", "加密货币"
+            ],
+            "wellness": [
+                "健康", "health", "运动", "exercise", "睡眠", "sleep", "饮食", "diet",
+                "冥想", "meditation", "压力", "stress", "心理健康", "mental health",
+                "生活方式", "lifestyle", "养生", "wellness"
+            ],
         }
 
+        # Score each category
+        scores = {cat: 0 for cat in category_keywords}
         for category, keywords in category_keywords.items():
-            if any(kw in text_lower for kw in keywords):
-                return category
+            for kw in keywords:
+                if kw in text_lower:
+                    scores[category] += 1
 
-        # Default based on content type
-        type_categories = {
-            ContentType.AI_SUMMARY: "ai",
-            ContentType.CONCEPT: "concepts",
-            ContentType.CODE: "tech",
-            ContentType.VISUALIZATION: "visualizations",
-        }
+        # Get best category
+        best_category = max(scores, key=scores.get)
+        if scores[best_category] > 0:
+            return best_category
 
-        return type_categories.get(content_type, "uncategorized")
+        # Default to inbox for uncategorized content
+        return "inbox"
 
-    def _extract_tags(self, text: str) -> list[str]:
-        """Extract relevant tags from content."""
+    def _extract_tags(self, text: str, category: str = None) -> list[str]:
+        """
+        Extract knowledge-based tags with #kb/ prefix format.
+
+        Format: #kb/category/subcategory
+        Example: #kb/thinking/mental-models, #kb/technology/ai
+        """
         tags = []
         text_lower = text.lower()
 
-        # Common tech/concept tags
-        tag_keywords = {
-            "python": ["python"],
-            "javascript": ["javascript", "js", "node"],
-            "ai": ["ai", "artificial intelligence"],
-            "ml": ["machine learning", "ml"],
-            "llm": ["llm", "large language model", "gpt", "claude"],
-            "api": ["api", "rest", "graphql"],
-            "database": ["database", "sql", "mongodb"],
-            "cloud": ["aws", "azure", "gcp", "cloud"],
-            "agent": ["agent", "multi-agent"],
-            "prompt": ["prompt", "prompting"],
+        # Subcategory keywords mapping (category -> subcategory -> keywords)
+        subcategory_keywords = {
+            "thinking": {
+                "mental-models": ["思维模型", "mental model", "心智模型"],
+                "decision-making": ["决策", "decision", "选择", "choice"],
+                "cognitive-bias": ["认知偏差", "cognitive bias", "偏见"],
+                "first-principles": ["第一性原理", "first principles", "本质"],
+                "systems-thinking": ["系统思维", "systems thinking", "复杂系统"],
+            },
+            "technology": {
+                "ai": ["ai", "人工智能", "artificial intelligence", "机器学习", "ml"],
+                "llm": ["llm", "大语言模型", "gpt", "claude", "chatgpt"],
+                "programming": ["编程", "programming", "代码", "code", "开发"],
+                "tools": ["工具", "tool", "软件", "software", "app"],
+                "product": ["产品", "product", "功能", "feature"],
+            },
+            "business": {
+                "startup": ["创业", "startup", "初创"],
+                "strategy": ["战略", "strategy", "竞争", "competition"],
+                "marketing": ["营销", "marketing", "增长", "growth"],
+                "management": ["管理", "management", "领导", "leadership"],
+            },
+            "growth": {
+                "learning": ["学习", "learning", "教育", "education"],
+                "productivity": ["效率", "productivity", "时间管理"],
+                "habits": ["习惯", "habit", "行为", "behavior"],
+                "career": ["职业", "career", "工作", "job"],
+            },
+            "philosophy": {
+                "psychology": ["心理", "psychology", "行为"],
+                "stoicism": ["斯多葛", "stoic", "自律"],
+                "eastern": ["禅", "zen", "道", "tao", "佛", "buddhism"],
+                "wisdom": ["智慧", "wisdom", "人生", "life"],
+            },
+            "creative": {
+                "design": ["设计", "design", "ui", "ux"],
+                "writing": ["写作", "writing", "文案", "copywriting"],
+                "art": ["艺术", "art", "美学", "aesthetic"],
+            },
+            "finance": {
+                "investing": ["投资", "investment", "股票", "stock"],
+                "personal-finance": ["理财", "finance", "储蓄", "saving"],
+                "economics": ["经济", "economics", "宏观"],
+                "crypto": ["加密", "crypto", "区块链", "blockchain"],
+            },
+            "wellness": {
+                "fitness": ["运动", "exercise", "健身", "fitness"],
+                "nutrition": ["饮食", "diet", "营养", "nutrition"],
+                "mental-health": ["心理健康", "mental health", "冥想", "meditation"],
+                "sleep": ["睡眠", "sleep", "休息", "rest"],
+            },
         }
 
-        for tag, keywords in tag_keywords.items():
-            if any(kw in text_lower for kw in keywords):
-                tags.append(tag)
+        # Add primary category tag
+        if category and category != "inbox":
+            tags.append(f"#kb/{category}")
 
-        return tags[:10]  # Limit tags
+        # Find matching subcategories
+        for cat, subcats in subcategory_keywords.items():
+            for subcat, keywords in subcats.items():
+                if any(kw in text_lower for kw in keywords):
+                    tag = f"#kb/{cat}/{subcat}"
+                    if tag not in tags:
+                        tags.append(tag)
+
+        # Limit to most relevant tags
+        return tags[:8]
 
     async def process_text(self, text: str) -> dict:
         """
@@ -297,6 +399,7 @@ class ContentProcessor:
         """
         content_type = self._detect_content_type(text)
         title = self._extract_title(text, content_type)
+        category = self._suggest_category(text, content_type)
 
         return {
             "id": self._generate_id(text),
@@ -305,9 +408,10 @@ class ContentProcessor:
             "content": text,
             "summary": self._generate_summary(text),
             "key_points": self._extract_key_points(text),
-            "category": self._suggest_category(text, content_type),
-            "tags": self._extract_tags(text),
+            "category": category,
+            "tags": self._extract_tags(text, category),
             "source": "direct_input",
+            "source_type": content_type.value,  # Original content type
             "processed_at": datetime.now().isoformat(),
         }
 
@@ -444,12 +548,12 @@ class ContentProcessor:
             content_lower = content.lower()[:500]
             fetch_failed = any(indicator in content_lower for indicator in error_indicators)
 
-            # Process the extracted content
+            # Process the extracted content (category determined by content)
             result = await self.process_text(content)
             result["title"] = title
             result["source"] = url
             result["type"] = "article"
-            result["category"] = "articles"
+            result["source_type"] = "article"  # Original source type
             result["original_url"] = url
             result["fetcher"] = "jina_reader"
 
@@ -471,9 +575,10 @@ class ContentProcessor:
                 "content": error_msg,
                 "summary": error_msg,
                 "key_points": [],
-                "category": "articles",
-                "tags": [],
+                "category": "inbox",
+                "tags": ["#kb/inbox"],
                 "source": url,
+                "source_type": "article",
                 "error": str(e),
                 "fetcher": "jina_reader",
             }
@@ -533,12 +638,12 @@ class ContentProcessor:
                 # Fallback: get all text from body
                 text = soup.body.get_text(separator='\n', strip=True) if soup.body else ""
 
-            # Process the extracted text
+            # Process the extracted text (category determined by content)
             result = await self.process_text(text)
             result["title"] = title
             result["source"] = url
             result["type"] = "article"
-            result["category"] = "articles"
+            result["source_type"] = "article"  # Original source type
             result["original_url"] = url
             result["fetcher"] = "direct"
 
@@ -559,9 +664,10 @@ class ContentProcessor:
                 "content": error_msg,
                 "summary": error_msg,
                 "key_points": [],
-                "category": "articles",
-                "tags": [],
+                "category": "inbox",
+                "tags": ["#kb/inbox"],
                 "source": url,
+                "source_type": "article",
                 "error": str(e),
                 "fetcher": "direct",
             }
@@ -580,9 +686,10 @@ class ContentProcessor:
                 "content": error_msg,
                 "summary": error_msg,
                 "key_points": [],
-                "category": "articles",
-                "tags": [],
+                "category": "inbox",
+                "tags": ["#kb/inbox"],
                 "source": url,
+                "source_type": "article",
                 "error": str(e),
                 "fetcher": "direct",
             }
@@ -598,10 +705,14 @@ class ContentProcessor:
         Returns:
             Dictionary with processed content data
         """
-        # Placeholder for actual vision processing
-        # In production, this would use Claude Vision API
-
         content_id = self._generate_id(str(image_path))
+
+        # Determine category based on caption if available
+        category = "inbox"
+        if caption:
+            category = self._suggest_category(caption, ContentType.VISUALIZATION)
+
+        tags = self._extract_tags(caption, category) if caption else ["#kb/inbox"]
 
         return {
             "id": content_id,
@@ -613,9 +724,10 @@ class ContentProcessor:
             "has_text": False,
             "summary": caption or "Image captured",
             "key_points": [],
-            "category": "visualizations",
-            "tags": ["image"],
+            "category": category,
+            "tags": tags,
             "source": str(image_path),
+            "source_type": "image",
             "image_path": str(image_path),
         }
 
@@ -650,13 +762,13 @@ class ContentProcessor:
                 except Exception as e:
                     content = f"[Error reading file: {e}]"
 
-        # Process the extracted content
+        # Process the extracted content (category determined by content)
         if content and not content.startswith("["):
             result = await self.process_text(content)
             result["title"] = title
             result["source"] = str(doc_path)
             result["type"] = "document"
-            result["category"] = "documents"
+            result["source_type"] = "document"  # Original source type
             result["extraction_method"] = extraction_method
             result["original_filename"] = doc_path.name
             return result
@@ -668,9 +780,10 @@ class ContentProcessor:
             "content": content or "[Unable to extract content]",
             "summary": f"Document: {title}" + (f" ({content})" if content.startswith("[") else ""),
             "key_points": [],
-            "category": "documents",
-            "tags": [],
+            "category": "inbox",
+            "tags": ["#kb/inbox"],
             "source": str(doc_path),
+            "source_type": "document",
             "extraction_method": extraction_method,
             "original_filename": doc_path.name,
         }

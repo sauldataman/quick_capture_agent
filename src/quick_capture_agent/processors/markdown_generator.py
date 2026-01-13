@@ -43,7 +43,7 @@ class MarkdownGenerator:
         return """---
 title: "{title}"
 source: "{source}"
-type: {type}
+source_type: {source_type}
 category: {category}
 tags: [{tags}]
 created: {created}
@@ -75,7 +75,7 @@ created: {created}
         return """---
 title: "{title}"
 source: "{source}"
-type: article
+source_type: article
 category: {category}
 tags: [{tags}]
 created: {created}
@@ -114,7 +114,7 @@ author: "{author}"
         return """---
 title: "{title}"
 source: "{source}"
-type: concept
+source_type: concept
 category: {category}
 tags: [{tags}]
 created: {created}
@@ -151,7 +151,7 @@ aliases: []
         return """---
 title: "{title}"
 source: "{source}"
-type: ai_summary
+source_type: ai_summary
 category: {category}
 tags: [{tags}]
 created: {created}
@@ -192,7 +192,7 @@ ai_generated: true
         return """---
 title: "{title}"
 source: "{source}"
-type: visualization
+source_type: image
 category: {category}
 tags: [{tags}]
 created: {created}
@@ -229,7 +229,7 @@ image_path: "{image_path}"
         return """---
 title: "{title}"
 source: "{source}"
-type: note
+source_type: note
 category: {category}
 tags: [{tags}]
 created: {created}
@@ -280,8 +280,8 @@ created: {created}
         variables = {
             "title": content_data.get("title", "Untitled"),
             "source": content_data.get("source", ""),
-            "type": content_type,
-            "category": content_data.get("category", "uncategorized"),
+            "source_type": content_data.get("source_type", content_type),
+            "category": content_data.get("category", "inbox"),
             "tags": tags_str,
             "tag_links": tag_links,
             "created": content_data.get("processed_at", datetime.now().isoformat()),
