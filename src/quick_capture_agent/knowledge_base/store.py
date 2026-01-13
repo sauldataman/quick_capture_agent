@@ -1,15 +1,20 @@
 """
 Knowledge Base storage system for persisting collected content and knowledge.
+
+Supports Google Drive sync for persistent storage across container restarts.
 """
 
 import json
 import hashlib
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Iterator
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import shutil
+
+logger = logging.getLogger(__name__)
 
 
 class ContentCategory(str, Enum):
@@ -78,34 +83,113 @@ class KnowledgeBase:
     - Full-text search
     - JSON file storage
     - Automatic indexing
+    - Google Drive sync for persistence
     """
 
-    def __init__(self, base_path: Optional[Path] = None):
+    def __init__(self, base_path: Optional[Path] = None, enable_gdrive_sync: bool = True):
         self.base_path = base_path or Path("./data/knowledge")
         self.base_path.mkdir(parents=True, exist_ok=True)
         self.index_path = self.base_path / "_index.json"
         self._index: dict = {}
+        self._gdrive_sync = None
+        self._enable_gdrive_sync = enable_gdrive_sync
         self._load_index()
 
+    @property
+    def gdrive_sync(self):
+        """Lazy load Google Drive sync."""
+        if self._gdrive_sync is None and self._enable_gdrive_sync:
+            try:
+                from quick_capture_agent.knowledge_base.gdrive_sync import get_gdrive_sync
+                self._gdrive_sync = get_gdrive_sync()
+            except Exception as e:
+                logger.debug(f"Google Drive sync not available: {e}")
+        return self._gdrive_sync
+
+    def _load_index_from_gdrive(self) -> Optional[dict]:
+        """Try to load index from Google Drive."""
+        if not self.gdrive_sync:
+            return None
+
+        try:
+            # Download _index.json from Google Drive
+            import io
+            query = "name='_index.json' and trashed=false"
+            if self.gdrive_sync.folder_id:
+                query += f" and '{self.gdrive_sync.folder_id}' in parents"
+
+            results = self.gdrive_sync.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name, modifiedTime)'
+            ).execute()
+
+            files = results.get('files', [])
+            if files:
+                file_id = files[0]['id']
+                request = self.gdrive_sync.service.files().get_media(fileId=file_id)
+                content = request.execute()
+                index_data = json.loads(content.decode('utf-8'))
+                logger.info(f"Loaded index from Google Drive: {len(index_data.get('items', {}))} items")
+                return index_data
+        except Exception as e:
+            logger.warning(f"Failed to load index from Google Drive: {e}")
+
+        return None
+
+    def _save_index_to_gdrive(self) -> None:
+        """Save index to Google Drive."""
+        if not self.gdrive_sync:
+            return
+
+        try:
+            index_json = json.dumps(self._index, indent=2, ensure_ascii=False)
+            self.gdrive_sync.upload_content_sync(
+                content=index_json,
+                remote_path="_index.json",
+                mime_type="application/json"
+            )
+            logger.debug("Index synced to Google Drive")
+        except Exception as e:
+            logger.warning(f"Failed to sync index to Google Drive: {e}")
+
     def _load_index(self) -> None:
-        """Load the index from disk."""
+        """Load the index from disk or Google Drive."""
+        # First try local
         if self.index_path.exists():
             with open(self.index_path, "r", encoding="utf-8") as f:
                 self._index = json.load(f)
-        else:
-            self._index = {
-                "items": {},
-                "tags": {},
-                "categories": {},
-                "created_at": datetime.now().isoformat(),
-            }
-            self._save_index()
+                logger.info(f"Loaded local index: {len(self._index.get('items', {}))} items")
+                return
+
+        # Try Google Drive if local doesn't exist
+        gdrive_index = self._load_index_from_gdrive()
+        if gdrive_index:
+            self._index = gdrive_index
+            # Save locally for faster access
+            with open(self.index_path, "w", encoding="utf-8") as f:
+                json.dump(self._index, f, indent=2, ensure_ascii=False)
+            return
+
+        # Create new index
+        self._index = {
+            "items": {},
+            "tags": {},
+            "categories": {},
+            "created_at": datetime.now().isoformat(),
+        }
+        self._save_index()
 
     def _save_index(self) -> None:
-        """Save the index to disk."""
+        """Save the index to disk and Google Drive."""
         self._index["updated_at"] = datetime.now().isoformat()
+
+        # Save locally
         with open(self.index_path, "w", encoding="utf-8") as f:
             json.dump(self._index, f, indent=2, ensure_ascii=False)
+
+        # Sync to Google Drive
+        self._save_index_to_gdrive()
 
     def _generate_id(self, content: str) -> str:
         """Generate a unique ID for content."""
