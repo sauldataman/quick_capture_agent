@@ -73,6 +73,8 @@ class WebhookServer:
         self.telegram_app.add_handler(CommandHandler("search", self.tg_bot.search_command))
         self.telegram_app.add_handler(CommandHandler("stats", self.tg_bot.stats_command))
         self.telegram_app.add_handler(CommandHandler("recent", self.tg_bot.recent_command))
+        self.telegram_app.add_handler(CommandHandler("get", self.tg_bot.get_command))
+        self.telegram_app.add_handler(CommandHandler("test_gdrive", self.tg_bot.test_gdrive_command))
 
         self.telegram_app.add_handler(MessageHandler(
             filters.TEXT & filters.Entity("url"), self.tg_bot.handle_url
