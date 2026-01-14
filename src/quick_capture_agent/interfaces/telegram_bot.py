@@ -194,8 +194,8 @@ class TelegramBot:
         try:
             return ContentCategory(category_str)
         except ValueError:
-            logger.warning(f"Invalid category '{category_str}', using UNCATEGORIZED")
-            return ContentCategory.UNCATEGORIZED
+            logger.warning(f"Invalid category '{category_str}', using INBOX")
+            return ContentCategory.INBOX
 
     def _escape_markdown(self, text: str) -> str:
         """Escape special characters for Telegram Markdown."""
@@ -228,7 +228,7 @@ class TelegramBot:
                 title=result.get("title", "Untitled"),
                 content=markdown_content,
                 source=url,
-                category=self._safe_category(result.get("category", "articles")),
+                category=self._safe_category(result.get("category", "inbox")),
                 tags=result.get("tags", []),
                 metadata={
                     "original_url": url,
@@ -364,7 +364,7 @@ class TelegramBot:
                 title=result.get("title", "Untitled"),
                 content=markdown_content,
                 source=result.get("source", "telegram"),
-                category=self._safe_category(result.get("category", "uncategorized")),
+                category=self._safe_category(result.get("category", "inbox")),
                 tags=result.get("tags", []),
                 metadata={
                     "telegram_message_id": message.message_id,
@@ -484,7 +484,7 @@ class TelegramBot:
                 title=result.get("title", "Image Capture"),
                 content=markdown_content,
                 source="telegram_photo",
-                category=self._safe_category(result.get("category", "visualizations")),
+                category=self._safe_category(result.get("category", "inbox")),
                 tags=result.get("tags", []),
                 metadata={
                     "image_path": str(final_image_path),
@@ -568,7 +568,7 @@ class TelegramBot:
                 title=result.get("title", doc.file_name),
                 content=markdown_content,
                 source=f"telegram_doc:{doc.file_name}",
-                category=self._safe_category(result.get("category", "documents")),
+                category=self._safe_category(result.get("category", "inbox")),
                 tags=result.get("tags", []),
                 metadata=metadata,
             )
