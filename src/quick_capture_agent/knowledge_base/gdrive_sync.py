@@ -351,6 +351,109 @@ class GoogleDriveSync:
             lambda: self.upload_content_sync(content, remote_path, mime_type)
         )
 
+    def download_file_content(self, file_id: str) -> bytes:
+        """Download file content from Google Drive."""
+        request = self.service.files().get_media(fileId=file_id)
+        return request.execute()
+
+    def list_files_in_folder(self, folder_path: str = "", file_extension: str = None) -> list:
+        """
+        List files in a folder.
+
+        Args:
+            folder_path: Path relative to root folder (e.g., "_data/inbox")
+            file_extension: Filter by extension (e.g., ".json")
+
+        Returns:
+            List of dicts with 'id', 'name', 'modifiedTime'
+        """
+        # Get folder ID
+        if folder_path:
+            folder_id = self._ensure_folder_path(folder_path)
+        else:
+            if not self.folder_id:
+                self.folder_id = self._get_or_create_folder(self.folder_name)
+            folder_id = self.folder_id
+
+        query = f"'{folder_id}' in parents and trashed=false"
+        if file_extension:
+            query += f" and name contains '{file_extension}'"
+
+        results = self.service.files().list(
+            q=query,
+            spaces='drive',
+            fields='files(id, name, modifiedTime)',
+            pageSize=1000
+        ).execute()
+
+        return results.get('files', [])
+
+    def restore_items_from_gdrive(self, local_base_path: Path) -> int:
+        """
+        Restore knowledge base items from Google Drive to local storage.
+
+        Args:
+            local_base_path: Local base path for knowledge base
+
+        Returns:
+            Number of items restored
+        """
+        restored_count = 0
+
+        try:
+            # List all category folders in _data
+            data_folder_id = self._ensure_folder_path("_data")
+
+            # Get category folders
+            query = f"'{data_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)'
+            ).execute()
+
+            category_folders = results.get('files', [])
+
+            for cat_folder in category_folders:
+                category_name = cat_folder['name']
+                category_id = cat_folder['id']
+
+                # Create local category directory
+                local_cat_dir = local_base_path / category_name
+                local_cat_dir.mkdir(parents=True, exist_ok=True)
+
+                # List JSON files in this category
+                query = f"'{category_id}' in parents and name contains '.json' and trashed=false"
+                files_result = self.service.files().list(
+                    q=query,
+                    spaces='drive',
+                    fields='files(id, name)'
+                ).execute()
+
+                json_files = files_result.get('files', [])
+
+                for json_file in json_files:
+                    local_file_path = local_cat_dir / json_file['name']
+
+                    # Only download if not exists locally
+                    if not local_file_path.exists():
+                        try:
+                            content = self.download_file_content(json_file['id'])
+                            with open(local_file_path, 'wb') as f:
+                                f.write(content)
+                            restored_count += 1
+                            logger.debug(f"Restored: {category_name}/{json_file['name']}")
+                        except Exception as e:
+                            logger.warning(f"Failed to restore {json_file['name']}: {e}")
+
+            if restored_count > 0:
+                logger.info(f"Restored {restored_count} items from Google Drive")
+
+        except Exception as e:
+            logger.warning(f"Failed to restore items from Google Drive: {e}")
+
+        return restored_count
+
 
 # Singleton instance
 _gdrive_sync: Optional[GoogleDriveSync] = None

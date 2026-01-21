@@ -172,6 +172,8 @@ class KnowledgeBase:
             with open(self.index_path, "r", encoding="utf-8") as f:
                 self._index = json.load(f)
                 logger.info(f"Loaded local index: {len(self._index.get('items', {}))} items")
+                # Also restore items from Google Drive if they don't exist locally
+                self._restore_items_from_gdrive()
                 return
 
         # Try Google Drive if local doesn't exist
@@ -181,6 +183,8 @@ class KnowledgeBase:
             # Save locally for faster access
             with open(self.index_path, "w", encoding="utf-8") as f:
                 json.dump(self._index, f, indent=2, ensure_ascii=False)
+            # Restore item files from Google Drive
+            self._restore_items_from_gdrive()
             return
 
         # Create new index
@@ -202,6 +206,35 @@ class KnowledgeBase:
 
         # Sync to Google Drive
         self._save_index_to_gdrive()
+
+    def _restore_items_from_gdrive(self) -> None:
+        """Restore item JSON files from Google Drive."""
+        if not self.gdrive_sync:
+            return
+
+        try:
+            restored = self.gdrive_sync.restore_items_from_gdrive(self.base_path)
+            if restored > 0:
+                logger.info(f"Restored {restored} item files from Google Drive")
+        except Exception as e:
+            logger.warning(f"Failed to restore items from Google Drive: {e}")
+
+    def _save_item_to_gdrive(self, item: "KnowledgeItem") -> None:
+        """Save a single item JSON to Google Drive."""
+        if not self.gdrive_sync:
+            return
+
+        try:
+            item_json = json.dumps(item.to_dict(), indent=2, ensure_ascii=False)
+            remote_path = f"_data/{item.category.value}/{item.id}.json"
+            self.gdrive_sync.upload_content_sync(
+                content=item_json,
+                remote_path=remote_path,
+                mime_type="application/json"
+            )
+            logger.debug(f"Item synced to Google Drive: {item.id}")
+        except Exception as e:
+            logger.warning(f"Failed to sync item to Google Drive: {e}")
 
     def _generate_id(self, content: str) -> str:
         """Generate a unique ID for content."""
@@ -275,6 +308,10 @@ class KnowledgeBase:
         self._index["categories"][category.value].append(item_id)
 
         self._save_index()
+
+        # Sync item to Google Drive for persistence
+        self._save_item_to_gdrive(item)
+
         return item
 
     def get(self, item_id: str) -> Optional[KnowledgeItem]:
@@ -313,6 +350,9 @@ class KnowledgeBase:
         self._index["items"][item_id]["title"] = item.title
         self._index["items"][item_id]["tags"] = item.tags
         self._save_index()
+
+        # Sync updated item to Google Drive
+        self._save_item_to_gdrive(item)
 
         return item
 

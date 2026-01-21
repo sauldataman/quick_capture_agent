@@ -308,23 +308,24 @@ class TelegramBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command - show all available commands."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
-        help_text = """📖 **命令列表**
+        help_text = """📖 *命令列表*
 
-**📥 内容捕获**
+*📥 内容捕获*
 • 直接发送链接 → 自动抓取分析
 • 直接发送文字 → 智能分类保存
 • 直接发送图片 → 视觉分析
 • 直接发送文件 → 解析提取
 
-**🔧 处理命令**
+*🔧 处理命令*
 /summary <链接或文字> - AI 深度总结
 /note <文字> - 快速记录笔记
 /todo <任务> - 添加待办事项
 /category <分类> <内容> - 指定分类保存
 
-**📂 分类 (可用于 /category)**
+*📂 分类*
 • thinking - 思维方法
 • technology - 技术
 • business - 商业
@@ -335,7 +336,7 @@ class TelegramBot:
 • wellness - 健康生活
 • inbox - 收件箱
 
-**🔍 查询命令**
+*🔍 查询命令*
 /search <关键词> - 搜索知识库
 /get <ID> - 获取指定内容
 /recent - 最近捕获
@@ -343,11 +344,11 @@ class TelegramBot:
 /inbox - 查看待分类内容
 /stats - 统计信息
 
-**⚙️ 系统命令**
+*⚙️ 系统命令*
 /help - 显示此帮助
-/test_gdrive - 测试 Google Drive
+/test\_gdrive - 测试 Google Drive
 
-**💡 提示**
+*💡 提示*
 • 发送图片时可添加说明文字
 • 转发消息会保留来源信息"""
 
