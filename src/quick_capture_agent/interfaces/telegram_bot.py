@@ -306,30 +306,52 @@ class TelegramBot:
         await update.message.reply_text(welcome)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /help command."""
+        """Handle /help command - show all available commands."""
         if not self._is_authorized(update.effective_user.id):
             return
 
-        help_text = """📖 使用帮助
+        help_text = """📖 **命令列表**
 
-内容类型支持：
-• 文章链接 → 自动抓取、总结、分类
-• 纯文本 → 识别类型、提取要点
-• 图片 → OCR + 视觉分析
-• 文件 → 解析并提取内容
+**📥 内容捕获**
+• 直接发送链接 → 自动抓取分析
+• 直接发送文字 → 智能分类保存
+• 直接发送图片 → 视觉分析
+• 直接发送文件 → 解析提取
 
-常用命令：
+**🔧 处理命令**
+/summary <链接或文字> - AI 深度总结
+/note <文字> - 快速记录笔记
+/todo <任务> - 添加待办事项
+/category <分类> <内容> - 指定分类保存
+
+**📂 分类 (可用于 /category)**
+• thinking - 思维方法
+• technology - 技术
+• business - 商业
+• growth - 个人成长
+• philosophy - 哲学心理
+• creative - 创意设计
+• finance - 财务投资
+• wellness - 健康生活
+• inbox - 收件箱
+
+**🔍 查询命令**
 /search <关键词> - 搜索知识库
-/get <ID> - 获取指定ID的内容
-/recent - 查看最近捕获
-/stats - 查看统计信息
+/get <ID> - 获取指定内容
+/recent - 最近捕获
+/list <分类> - 列出分类内容
+/inbox - 查看待分类内容
+/stats - 统计信息
 
-提示：
-• 发送图片时可以添加说明文字
-• 转发的消息会保留来源信息
-• 知乎、微信等受限网站会自动使用Jina Reader"""
+**⚙️ 系统命令**
+/help - 显示此帮助
+/test_gdrive - 测试 Google Drive
 
-        await update.message.reply_text(help_text)
+**💡 提示**
+• 发送图片时可添加说明文字
+• 转发消息会保留来源信息"""
+
+        await update.message.reply_text(help_text, parse_mode="Markdown")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle text messages."""
@@ -814,6 +836,325 @@ class TelegramBot:
                 f"错误详情:\n{short_trace}"
             )
 
+    async def summary_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /summary command - AI deep summarization."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "用法: /summary <链接或文字>\n\n"
+                "例如:\n"
+                "/summary https://example.com/article\n"
+                "/summary 这里是一段需要总结的长文本..."
+            )
+            return
+
+        content = " ".join(context.args)
+        status_msg = await update.message.reply_text("🔄 正在 AI 深度分析...")
+
+        try:
+            # Check if it's a URL
+            import re
+            url_pattern = r'https?://[^\s]+'
+            urls = re.findall(url_pattern, content)
+
+            if urls:
+                result = await self.processor.process_url(urls[0])
+            else:
+                result = await self.processor.process_text(content)
+
+            # Use AI for deeper summary
+            try:
+                import anthropic
+                client = anthropic.Anthropic()
+
+                ai_response = client.messages.create(
+                    model="claude-sonnet-4-5-20250514",
+                    max_tokens=1500,
+                    messages=[{
+                        "role": "user",
+                        "content": f"""请对以下内容进行深度分析和总结：
+
+1. **核心观点**：提炼3-5个最重要的观点
+2. **关键洞察**：有什么独特或创新的见解
+3. **实践建议**：如何应用这些知识
+4. **相关联想**：与哪些概念/理论相关
+
+内容：
+{result.get('content', content)[:4000]}"""
+                    }]
+                )
+
+                ai_summary = ai_response.content[0].text
+                result['summary'] = ai_summary
+                result['type'] = 'ai_summary'
+
+            except Exception as e:
+                logger.warning(f"AI summary failed: {e}")
+
+            # Save to knowledge base
+            markdown_content = self.markdown_gen.generate(result)
+            item = self.knowledge_base.add(
+                title=result.get("title", "AI Summary"),
+                content=markdown_content,
+                source=result.get("source", "summary_command"),
+                category=self._safe_category(result.get("category", "inbox")),
+                tags=result.get("tags", []) + ["#kb/ai-summary"],
+                metadata={"command": "summary"}
+            )
+
+            # Sync to Google Drive
+            safe_filename = sanitize_filename(result.get('title', 'AI Summary'))
+            await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'inbox'),
+                filename=f"{safe_filename}.md",
+                item_json=item.to_dict(),
+            )
+
+            safe_summary = self._safe_markdown_text(result.get('summary', ''), 1500)
+            response = f"""✅ AI 深度分析完成
+
+📌 {self._safe_markdown_text(result.get('title', 'Summary'), 80)}
+
+{safe_summary}
+
+🔑 ID: {item.id}"""
+
+            if len(response) > 4000:
+                response = response[:3997] + "..."
+
+            await status_msg.edit_text(response)
+
+        except Exception as e:
+            logger.error(f"Summary command error: {e}")
+            await status_msg.edit_text(f"❌ 分析失败: {str(e)}")
+
+    async def note_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /note command - quick note capture."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        if not context.args:
+            await update.message.reply_text("用法: /note <笔记内容>")
+            return
+
+        note_content = " ".join(context.args)
+
+        # Create a simple note
+        result = {
+            "id": self.processor._generate_id(note_content),
+            "type": "note",
+            "title": note_content[:50] + ("..." if len(note_content) > 50 else ""),
+            "content": note_content,
+            "summary": note_content[:200],
+            "key_points": [],
+            "category": "inbox",
+            "tags": ["#kb/inbox", "#kb/growth/notes"],
+            "source": "quick_note",
+            "source_type": "note",
+            "processed_at": datetime.now().isoformat(),
+        }
+
+        markdown_content = self.markdown_gen.generate(result)
+        item = self.knowledge_base.add(
+            title=result["title"],
+            content=markdown_content,
+            source="quick_note",
+            category=ContentCategory.INBOX,
+            tags=result["tags"],
+            metadata={"command": "note"}
+        )
+
+        # Sync to Google Drive
+        safe_filename = sanitize_filename(result['title'])
+        await self._sync_to_gdrive(
+            content=markdown_content,
+            category="inbox",
+            filename=f"{safe_filename}.md",
+            item_json=item.to_dict(),
+        )
+
+        await update.message.reply_text(f"✅ 笔记已保存\n🔑 ID: {item.id}")
+
+    async def todo_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /todo command - add todo item."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        if not context.args:
+            await update.message.reply_text("用法: /todo <待办事项>")
+            return
+
+        todo_content = " ".join(context.args)
+
+        result = {
+            "id": self.processor._generate_id(todo_content),
+            "type": "note",
+            "title": f"TODO: {todo_content[:40]}",
+            "content": f"- [ ] {todo_content}",
+            "summary": todo_content,
+            "key_points": [],
+            "category": "growth",
+            "tags": ["#kb/growth", "#kb/growth/productivity", "#todo"],
+            "source": "todo_command",
+            "source_type": "note",
+            "processed_at": datetime.now().isoformat(),
+        }
+
+        markdown_content = self.markdown_gen.generate(result)
+        item = self.knowledge_base.add(
+            title=result["title"],
+            content=markdown_content,
+            source="todo_command",
+            category=ContentCategory.GROWTH,
+            tags=result["tags"],
+            metadata={"command": "todo", "is_todo": True}
+        )
+
+        # Sync to Google Drive
+        safe_filename = sanitize_filename(result['title'])
+        await self._sync_to_gdrive(
+            content=markdown_content,
+            category="growth",
+            filename=f"{safe_filename}.md",
+            item_json=item.to_dict(),
+        )
+
+        await update.message.reply_text(f"✅ 待办已添加\n📝 {todo_content}\n🔑 ID: {item.id}")
+
+    async def category_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /category command - save with specific category."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        if len(context.args) < 2:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(
+                f"用法: /category <分类> <内容或链接>\n\n"
+                f"可用分类: {categories}\n\n"
+                f"例如:\n"
+                f"/category thinking 第一性原理是一种思维方法..."
+            )
+            return
+
+        category_str = context.args[0].lower()
+        content = " ".join(context.args[1:])
+
+        # Validate category
+        try:
+            category = ContentCategory(category_str)
+        except ValueError:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(f"❌ 无效分类: {category_str}\n\n可用分类: {categories}")
+            return
+
+        status_msg = await update.message.reply_text(f"🔄 正在处理并归类到 {category_str}...")
+
+        try:
+            # Check if it's a URL
+            import re
+            url_pattern = r'https?://[^\s]+'
+            urls = re.findall(url_pattern, content)
+
+            if urls:
+                result = await self.processor.process_url(urls[0])
+            else:
+                result = await self.processor.process_text(content)
+
+            # Override category
+            result['category'] = category_str
+            result['tags'] = [f"#kb/{category_str}"] + result.get('tags', [])
+
+            markdown_content = self.markdown_gen.generate(result)
+            item = self.knowledge_base.add(
+                title=result.get("title", "Untitled"),
+                content=markdown_content,
+                source=result.get("source", "category_command"),
+                category=category,
+                tags=result.get("tags", []),
+                metadata={"command": "category", "forced_category": category_str}
+            )
+
+            # Sync to Google Drive
+            safe_filename = sanitize_filename(result.get('title', 'Untitled'))
+            await self._sync_to_gdrive(
+                content=markdown_content,
+                category=category_str,
+                filename=f"{safe_filename}.md",
+                item_json=item.to_dict(),
+            )
+
+            safe_title = self._safe_markdown_text(result.get('title', 'Untitled'), 80)
+            await status_msg.edit_text(
+                f"✅ 已保存到 {category_str}\n\n"
+                f"📌 {safe_title}\n"
+                f"🔑 ID: {item.id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Category command error: {e}")
+            await status_msg.edit_text(f"❌ 处理失败: {str(e)}")
+
+    async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /list command - list items by category."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        if not context.args:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(f"用法: /list <分类>\n\n可用分类: {categories}")
+            return
+
+        category_str = context.args[0].lower()
+
+        try:
+            category = ContentCategory(category_str)
+        except ValueError:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(f"❌ 无效分类: {category_str}\n\n可用分类: {categories}")
+            return
+
+        items = self.knowledge_base.list_by_category(category)
+
+        if not items:
+            await update.message.reply_text(f"📭 {category_str} 分类为空")
+            return
+
+        response = f"📂 **{category_str}** ({len(items)} 项)\n\n"
+        for item in items[:10]:
+            safe_title = self._safe_markdown_text(item.title[:35], 40)
+            response += f"• {safe_title}\n  🔑 `{item.id}`\n"
+
+        if len(items) > 10:
+            response += f"\n... 还有 {len(items) - 10} 项"
+
+        await update.message.reply_text(response, parse_mode="Markdown")
+
+    async def inbox_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /inbox command - list inbox items."""
+        if not self._is_authorized(update.effective_user.id):
+            return
+
+        items = self.knowledge_base.list_by_category(ContentCategory.INBOX)
+
+        if not items:
+            await update.message.reply_text("📭 收件箱为空 - 所有内容已分类！")
+            return
+
+        response = f"📥 **收件箱** ({len(items)} 项待分类)\n\n"
+        for item in items[:10]:
+            safe_title = self._safe_markdown_text(item.title[:35], 40)
+            response += f"• {safe_title}\n  🔑 `{item.id}`\n"
+
+        if len(items) > 10:
+            response += f"\n... 还有 {len(items) - 10} 项"
+
+        response += "\n\n💡 使用 /category <分类> <ID> 重新分类"
+
+        await update.message.reply_text(response, parse_mode="Markdown")
+
     def run(self) -> None:
         """Start the bot."""
         self.app = Application.builder().token(self.token).build()
@@ -826,6 +1167,14 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("recent", self.recent_command))
         self.app.add_handler(CommandHandler("get", self.get_command))
         self.app.add_handler(CommandHandler("test_gdrive", self.test_gdrive_command))
+
+        # New processing commands
+        self.app.add_handler(CommandHandler("summary", self.summary_command))
+        self.app.add_handler(CommandHandler("note", self.note_command))
+        self.app.add_handler(CommandHandler("todo", self.todo_command))
+        self.app.add_handler(CommandHandler("category", self.category_command))
+        self.app.add_handler(CommandHandler("list", self.list_command))
+        self.app.add_handler(CommandHandler("inbox", self.inbox_command))
 
         # Message handlers
         self.app.add_handler(MessageHandler(

@@ -76,6 +76,14 @@ class WebhookServer:
         self.telegram_app.add_handler(CommandHandler("get", self.tg_bot.get_command))
         self.telegram_app.add_handler(CommandHandler("test_gdrive", self.tg_bot.test_gdrive_command))
 
+        # Processing commands
+        self.telegram_app.add_handler(CommandHandler("summary", self.tg_bot.summary_command))
+        self.telegram_app.add_handler(CommandHandler("note", self.tg_bot.note_command))
+        self.telegram_app.add_handler(CommandHandler("todo", self.tg_bot.todo_command))
+        self.telegram_app.add_handler(CommandHandler("category", self.tg_bot.category_command))
+        self.telegram_app.add_handler(CommandHandler("list", self.tg_bot.list_command))
+        self.telegram_app.add_handler(CommandHandler("inbox", self.tg_bot.inbox_command))
+
         self.telegram_app.add_handler(MessageHandler(
             filters.TEXT & filters.Entity("url"), self.tg_bot.handle_url
         ))
