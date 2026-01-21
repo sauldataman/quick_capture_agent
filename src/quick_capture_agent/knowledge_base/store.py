@@ -220,7 +220,7 @@ class KnowledgeBase:
         title: str,
         content: str,
         source: str = "",
-        category: ContentCategory = ContentCategory.UNCATEGORIZED,
+        category: ContentCategory = ContentCategory.INBOX,
         tags: list[str] = None,
         metadata: dict = None,
     ) -> KnowledgeItem:

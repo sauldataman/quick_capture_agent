@@ -870,7 +870,7 @@ class TelegramBot:
                 client = anthropic.Anthropic()
 
                 ai_response = client.messages.create(
-                    model="claude-sonnet-4-5-20250514",
+                    model="claude-sonnet-4-5-20241022",
                     max_tokens=1500,
                     messages=[{
                         "role": "user",
