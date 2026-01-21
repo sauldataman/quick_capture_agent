@@ -267,7 +267,7 @@ class TelegramBot:
 📝 摘要:
 {safe_summary}
 
-📁 分类: {result.get('category', 'articles')}
+📁 分类: {result.get('category', 'inbox')}
 🏷️ 标签: {safe_tags}{fetcher_info}{gdrive_info}
 
 🔑 ID: {item.id}"""
@@ -541,7 +541,7 @@ class TelegramBot:
             response = f"""✅ 图片已分析并保存
 
 📌 {safe_title}
-📁 分类: {result.get('category', 'visualizations')}{gdrive_info}
+📁 分类: {result.get('category', 'inbox')}{gdrive_info}
 
 📝 内容识别:
 {safe_desc}{ocr_info}
@@ -620,7 +620,7 @@ class TelegramBot:
             response = f"""✅ 文档已处理
 
 📄 {display_filename}
-📁 分类: {result.get('category', 'documents')}{extraction_info}{gdrive_info}
+📁 分类: {result.get('category', 'inbox')}{extraction_info}{gdrive_info}
 
 📝 摘要:
 {safe_summary}

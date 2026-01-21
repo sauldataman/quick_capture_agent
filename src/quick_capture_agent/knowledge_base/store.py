@@ -72,7 +72,26 @@ class KnowledgeItem:
     def from_dict(cls, data: dict) -> "KnowledgeItem":
         """Create from dictionary."""
         if "category" in data:
-            data["category"] = ContentCategory(data["category"])
+            # Migrate old categories to new knowledge-based categories
+            old_to_new = {
+                "articles": "inbox",
+                "documents": "inbox",
+                "visualizations": "inbox",
+                "notes": "inbox",
+                "uncategorized": "inbox",
+                "concepts": "thinking",
+                "tech": "technology",
+                "ai": "technology",
+                "productivity": "growth",
+            }
+            category_str = data["category"]
+            if category_str in old_to_new:
+                category_str = old_to_new[category_str]
+            try:
+                data["category"] = ContentCategory(category_str)
+            except ValueError:
+                # Default to INBOX for any unknown category
+                data["category"] = ContentCategory.INBOX
         return cls(**data)
 
     def matches_query(self, query: str) -> bool:

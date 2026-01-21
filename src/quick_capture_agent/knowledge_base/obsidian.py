@@ -37,19 +37,22 @@ class ObsidianVault:
     └── _index.md          # Main index
     """
 
-    # Category to folder mapping
+    # Category to folder mapping (knowledge-based categories)
     CATEGORY_FOLDERS = {
-        "articles": "Articles",
-        "concepts": "Concepts",
-        "ai_summary": "AI-Summaries",
-        "ai-summaries": "AI-Summaries",
-        "visualizations": "Visualizations",
-        "notes": "Notes",
-        "documents": "Documents",
-        "tech": "Articles/Tech",
-        "ai": "Articles/AI",
-        "business": "Articles/Business",
-        "productivity": "Articles/Productivity",
+        "thinking": "Thinking",        # 思维方法
+        "technology": "Technology",    # 技术
+        "business": "Business",        # 商业
+        "growth": "Growth",            # 个人成长
+        "philosophy": "Philosophy",    # 哲学心理
+        "creative": "Creative",        # 创意设计
+        "finance": "Finance",          # 财务投资
+        "wellness": "Wellness",        # 健康生活
+        "inbox": "Inbox",              # 收件箱
+        # Legacy mappings for backward compatibility
+        "articles": "Inbox",
+        "documents": "Inbox",
+        "visualizations": "Inbox",
+        "notes": "Inbox",
         "uncategorized": "Inbox",
     }
 
