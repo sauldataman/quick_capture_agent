@@ -641,6 +641,7 @@ class TelegramBot:
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /search command."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if not context.args:
@@ -665,6 +666,7 @@ class TelegramBot:
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /stats command."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         stats = self.knowledge_base.get_stats()
@@ -684,28 +686,34 @@ class TelegramBot:
     async def recent_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /recent command."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
-        items = list(self.knowledge_base.iter_all())
-        items.sort(key=lambda x: x.created_at, reverse=True)
-        recent = items[:5]
+        try:
+            items = list(self.knowledge_base.iter_all())
+            items.sort(key=lambda x: x.created_at, reverse=True)
+            recent = items[:5]
 
-        if not recent:
-            await update.message.reply_text("📭 知识库为空")
-            return
+            if not recent:
+                await update.message.reply_text("📭 知识库为空")
+                return
 
-        response = "📋 最近捕获\n\n"
-        for item in recent:
-            safe_title = self._safe_markdown_text(item.title[:40], 50)
-            response += f"📌 {safe_title}\n"
-            response += f"   {item.created_at[:10]} | {item.category.value}\n"
-            response += f"   🔑 {item.id}\n\n"
+            response = "📋 最近捕获\n\n"
+            for item in recent:
+                safe_title = self._safe_markdown_text(item.title[:40], 50)
+                response += f"📌 {safe_title}\n"
+                response += f"   {item.created_at[:10]} | {item.category.value}\n"
+                response += f"   🔑 {item.id}\n\n"
 
-        await update.message.reply_text(response)
+            await update.message.reply_text(response)
+        except Exception as e:
+            logger.error(f"Error in recent_command: {e}")
+            await update.message.reply_text(f"❌ 错误: {str(e)}")
 
     async def get_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /get <id> command to retrieve stored content."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if not context.args:
@@ -746,6 +754,7 @@ class TelegramBot:
         """Handle /test_gdrive command to test Google Drive integration."""
         try:
             if not self._is_authorized(update.effective_user.id):
+                await update.message.reply_text("⛔ Unauthorized")
                 return
 
             await update.message.reply_text("🔄 测试 Google Drive 连接...")
@@ -840,6 +849,7 @@ class TelegramBot:
     async def summary_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /summary command - AI deep summarization."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if not context.args:
@@ -935,6 +945,7 @@ class TelegramBot:
     async def note_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /note command - quick note capture."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if not context.args:
@@ -982,6 +993,7 @@ class TelegramBot:
     async def todo_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /todo command - add todo item."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if not context.args:
@@ -1028,6 +1040,7 @@ class TelegramBot:
     async def category_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /category command - save with specific category."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if len(context.args) < 2:
@@ -1101,6 +1114,7 @@ class TelegramBot:
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list command - list items by category."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         if not context.args:
@@ -1136,6 +1150,7 @@ class TelegramBot:
     async def inbox_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /inbox command - list inbox items."""
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
             return
 
         items = self.knowledge_base.list_by_category(ContentCategory.INBOX)
