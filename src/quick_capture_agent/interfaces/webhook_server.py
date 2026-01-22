@@ -84,6 +84,11 @@ class WebhookServer:
         self.telegram_app.add_handler(CommandHandler("list", self.tg_bot.list_command))
         self.telegram_app.add_handler(CommandHandler("inbox", self.tg_bot.inbox_command))
 
+        # Universal save and modification commands
+        self.telegram_app.add_handler(CommandHandler("save", self.tg_bot.save_command))
+        self.telegram_app.add_handler(CommandHandler("rename", self.tg_bot.rename_command))
+        self.telegram_app.add_handler(CommandHandler("move", self.tg_bot.move_command))
+
         self.telegram_app.add_handler(MessageHandler(
             filters.TEXT & filters.Entity("url"), self.tg_bot.handle_url
         ))

@@ -216,6 +216,44 @@ class TelegramBot:
             text = text[:max_length] + "..."
         return self._escape_markdown(text)
 
+    def _parse_params(self, text: str) -> tuple[dict, str]:
+        """
+        Parse parameters from text like 'name:标题 cat:tech 内容...'
+
+        Supports:
+        - name: or n: for custom filename/title
+        - cat: or c: for category
+
+        Returns:
+            tuple: (params_dict, remaining_content)
+        """
+        import re
+        params = {}
+        remaining = text
+
+        # Pattern for name: or n: (supports Chinese and quoted strings)
+        name_pattern = r'(?:name|n):(?:"([^"]+)"|([^\s]+))\s*'
+        name_match = re.search(name_pattern, remaining)
+        if name_match:
+            params['name'] = name_match.group(1) or name_match.group(2)
+            remaining = re.sub(name_pattern, '', remaining, count=1)
+
+        # Pattern for cat: or c:
+        cat_pattern = r'(?:cat|c):([^\s]+)\s*'
+        cat_match = re.search(cat_pattern, remaining)
+        if cat_match:
+            params['category'] = cat_match.group(1)
+            remaining = re.sub(cat_pattern, '', remaining, count=1)
+
+        # Pattern for tags: or t: (comma-separated)
+        tags_pattern = r'(?:tags|t):([^\s]+)\s*'
+        tags_match = re.search(tags_pattern, remaining)
+        if tags_match:
+            params['tags'] = [t.strip() for t in tags_match.group(1).split(',')]
+            remaining = re.sub(tags_pattern, '', remaining, count=1)
+
+        return params, remaining.strip()
+
     async def _process_url_message(self, message, url: str) -> None:
         """Process a URL and save to knowledge base."""
         status_msg = await message.reply_text(f"🔄 正在抓取: {url[:50]}...")
@@ -320,21 +358,18 @@ class TelegramBot:
 • 直接发送文件 → 解析提取
 
 *🔧 处理命令*
+/save <内容> - 通用保存(支持参数)
 /summary <链接或文字> - AI 深度总结
 /note <文字> - 快速记录笔记
 /todo <任务> - 添加待办事项
-/category <分类> <内容> - 指定分类保存
+
+*✏️ 编辑命令*
+/rename <ID> <新标题> - 重命名
+/move <ID> <分类> - 移动分类
 
 *📂 分类*
-• thinking - 思维方法
-• technology - 技术
-• business - 商业
-• growth - 个人成长
-• philosophy - 哲学心理
-• creative - 创意设计
-• finance - 财务投资
-• wellness - 健康生活
-• inbox - 收件箱
+thinking, technology, business, growth,
+philosophy, creative, finance, wellness, inbox
 
 *🔍 查询命令*
 /search <关键词> - 搜索知识库
@@ -344,13 +379,12 @@ class TelegramBot:
 /inbox - 查看待分类内容
 /stats - 统计信息
 
-*⚙️ 系统命令*
-/help - 显示此帮助
-/test\_gdrive - 测试 Google Drive
+*💡 /save 参数*
+`n:` 或 `name:` - 自定义标题
+`c:` 或 `cat:` - 指定分类
+`t:` 或 `tags:` - 标签(逗号分隔)
 
-*💡 提示*
-• 发送图片时可添加说明文字
-• 转发消息会保留来源信息"""
+例: `/save n:AI趋势 c:tech https://...`"""
 
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -1167,9 +1201,229 @@ class TelegramBot:
         if len(items) > 10:
             response += f"\n... 还有 {len(items) - 10} 项"
 
-        response += "\n\n💡 使用 /category <分类> <ID> 重新分类"
+        response += "\n\n💡 使用 /move <ID> <分类> 重新分类"
 
         await update.message.reply_text(response, parse_mode="Markdown")
+
+    async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Handle /save command - universal save with options.
+
+        Usage:
+            /save <content or url>
+            /save name:标题 <content>
+            /save cat:technology <content>
+            /save name:标题 cat:tech tags:ai,ml <content>
+            /save n:标题 c:tech t:ai,ml <content>
+        """
+        if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
+            return
+
+        if not context.args:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(
+                "📝 *通用保存命令*\n\n"
+                "*用法:*\n"
+                "`/save <内容或链接>`\n"
+                "`/save name:标题 <内容>`\n"
+                "`/save cat:分类 <内容>`\n"
+                "`/save n:标题 c:分类 t:标签 <内容>`\n\n"
+                "*参数:*\n"
+                "• `name:` 或 `n:` - 自定义标题\n"
+                "• `cat:` 或 `c:` - 指定分类\n"
+                "• `tags:` 或 `t:` - 标签(逗号分隔)\n\n"
+                f"*可用分类:* {categories}\n\n"
+                "*示例:*\n"
+                "`/save n:AI趋势 c:tech https://...`\n"
+                "`/save name:读书笔记 这是内容...`",
+                parse_mode="Markdown"
+            )
+            return
+
+        full_text = " ".join(context.args)
+        params, content = self._parse_params(full_text)
+
+        if not content:
+            await update.message.reply_text("❌ 请提供内容或链接")
+            return
+
+        status_msg = await update.message.reply_text("🔄 处理中...")
+
+        try:
+            import re
+            url_pattern = r'https?://[^\s]+'
+            urls = re.findall(url_pattern, content)
+
+            if urls:
+                result = await self.processor.process_url(urls[0])
+            else:
+                result = await self.processor.process_text(content)
+
+            # Apply custom parameters
+            if 'name' in params:
+                result['title'] = params['name']
+            if 'category' in params:
+                result['category'] = params['category']
+            if 'tags' in params:
+                result['tags'] = result.get('tags', []) + params['tags']
+
+            # Validate category
+            category_str = result.get('category', 'inbox')
+            try:
+                category = ContentCategory(category_str)
+            except ValueError:
+                category = ContentCategory.INBOX
+                result['category'] = 'inbox'
+
+            markdown_content = self.markdown_gen.generate(result)
+
+            item = self.knowledge_base.add(
+                title=result.get("title", "Untitled"),
+                content=markdown_content,
+                source=result.get("source", urls[0] if urls else "telegram"),
+                category=category,
+                tags=result.get("tags", []),
+                metadata={
+                    "telegram_message_id": update.message.message_id,
+                    "custom_params": params,
+                }
+            )
+
+            # Sync to Google Drive
+            title = result.get('title', 'Untitled')
+            safe_filename = sanitize_filename(title)
+            await self._sync_to_gdrive(
+                content=markdown_content,
+                category=result.get('category', 'inbox'),
+                filename=f"{safe_filename}.md",
+                item_json=item.to_dict(),
+            )
+
+            safe_title = self._safe_markdown_text(result.get('title', 'Untitled'), 80)
+            tags_str = ', '.join(result.get('tags', [])) or '无'
+
+            await status_msg.edit_text(
+                f"✅ 已保存\n\n"
+                f"📌 {safe_title}\n"
+                f"📁 分类: {result.get('category', 'inbox')}\n"
+                f"🏷️ 标签: {tags_str}\n"
+                f"🔑 ID: {item.id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Save command error: {e}")
+            await status_msg.edit_text(f"❌ 保存失败: {str(e)}")
+
+    async def rename_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Handle /rename command - rename an existing item.
+
+        Usage: /rename <ID> <新标题>
+        """
+        if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
+            return
+
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "用法: `/rename <ID> <新标题>`\n\n"
+                "例如: `/rename 20260121-abc123 我的新标题`",
+                parse_mode="Markdown"
+            )
+            return
+
+        item_id = context.args[0]
+        new_title = " ".join(context.args[1:])
+
+        item = self.knowledge_base.get(item_id)
+        if not item:
+            await update.message.reply_text(f"❌ 未找到 ID: {item_id}")
+            return
+
+        old_title = item.title
+
+        # Update the item
+        updated_item = self.knowledge_base.update(item_id, title=new_title)
+
+        if updated_item:
+            # Re-sync to Google Drive with new filename
+            safe_filename = sanitize_filename(new_title)
+            await self._sync_to_gdrive(
+                content=updated_item.content,
+                category=updated_item.category.value,
+                filename=f"{safe_filename}.md",
+                item_json=updated_item.to_dict(),
+            )
+
+            await update.message.reply_text(
+                f"✅ 已重命名\n\n"
+                f"📌 旧标题: {old_title}\n"
+                f"📌 新标题: {new_title}\n"
+                f"🔑 ID: {item_id}"
+            )
+        else:
+            await update.message.reply_text(f"❌ 重命名失败")
+
+    async def move_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Handle /move command - move item to a different category.
+
+        Usage: /move <ID> <新分类>
+        """
+        if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Unauthorized")
+            return
+
+        if len(context.args) < 2:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(
+                f"用法: `/move <ID> <分类>`\n\n"
+                f"可用分类: {categories}\n\n"
+                f"例如: `/move 20260121-abc123 technology`",
+                parse_mode="Markdown"
+            )
+            return
+
+        item_id = context.args[0]
+        new_category_str = context.args[1].lower()
+
+        # Validate category
+        try:
+            new_category = ContentCategory(new_category_str)
+        except ValueError:
+            categories = ", ".join([c.value for c in ContentCategory])
+            await update.message.reply_text(f"❌ 无效分类: {new_category_str}\n\n可用分类: {categories}")
+            return
+
+        item = self.knowledge_base.get(item_id)
+        if not item:
+            await update.message.reply_text(f"❌ 未找到 ID: {item_id}")
+            return
+
+        old_category = item.category.value
+
+        # Update the item category
+        updated_item = self.knowledge_base.update(item_id, category=new_category)
+
+        if updated_item:
+            # Re-sync to Google Drive in new category folder
+            safe_filename = sanitize_filename(updated_item.title)
+            await self._sync_to_gdrive(
+                content=updated_item.content,
+                category=new_category_str,
+                filename=f"{safe_filename}.md",
+                item_json=updated_item.to_dict(),
+            )
+
+            await update.message.reply_text(
+                f"✅ 已移动\n\n"
+                f"📌 {updated_item.title}\n"
+                f"📁 {old_category} → {new_category_str}\n"
+                f"🔑 ID: {item_id}"
+            )
+        else:
+            await update.message.reply_text(f"❌ 移动失败")
 
     def run(self) -> None:
         """Start the bot."""
@@ -1191,6 +1445,11 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("category", self.category_command))
         self.app.add_handler(CommandHandler("list", self.list_command))
         self.app.add_handler(CommandHandler("inbox", self.inbox_command))
+
+        # Universal save and modification commands
+        self.app.add_handler(CommandHandler("save", self.save_command))
+        self.app.add_handler(CommandHandler("rename", self.rename_command))
+        self.app.add_handler(CommandHandler("move", self.move_command))
 
         # Message handlers
         self.app.add_handler(MessageHandler(
